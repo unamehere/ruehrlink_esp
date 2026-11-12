@@ -38,15 +38,16 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
-| POST | `/api/v1/sequence/start` | Multi-Programm laden `{"programId":"…"}` oder inline `{"steps":[…]}` |
-| POST | `/api/v1/sequence/abort` | Multi-Programm abbrechen |
+| POST | `/api/v1/sequence/start` | Programm starten `{"programId":"…"}` oder inline `{"steps":[…]}` |
+| POST | `/api/v1/sequence/abort` | laufendes Programm abbrechen |
 | GET | `/api/v1/recipes?since=<rev>` | Änderungen seit Revision: `{"rev":n,"changed":[…],"deleted":[ids]}` |
 | GET | `/api/v1/recipes/{id}` | ein Rezept |
 | PUT | `/api/v1/recipes/{id}` | anlegen/ändern, Header `If-Match: <rev>` gegen Überschreiben |
 | DELETE | `/api/v1/recipes/{id}` | löschen |
 | GET | `/api/v1/media/{sha256}` | Foto (WebP), unveränderlich, cachebar |
 | PUT | `/api/v1/media/{sha256}` | Foto hochladen (max. 1 MB) |
-| GET | `/api/v1/programs` | Multi-Programm-Presets |
+| GET | `/api/v1/programs` | Programme (feste Abläufe) |
+| GET | `/api/v1/assistants` | Assistenten (Fragen + Formeln, siehe unten) |
 | POST | `/api/v1/machine/onboard` | Maschine koppeln (Ablauf siehe architektur.md) |
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
 | POST | `/api/v1/pair` | Kopplung anfragen (siehe oben) |
@@ -152,7 +153,7 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
 }
 ```
 
-### Multi-Programm
+### Programm
 
 ```json
 {
@@ -170,3 +171,37 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
 
 Die Werte im Beispiel sind Platzhalter – echte Werte werden an der Maschine ermittelt.
 Ob eine Ruhephase per `speed: 0` im laufenden Programm funktioniert, ist **noch zu testen**.
+
+### Assistent (Entwurf)
+
+Ein Assistent fragt nach, berechnet Zutaten und erzeugt daraus ein **Programm** (inline an
+`/sequence/start`). Die Brücke speichert Assistenten nur (wie Rezepte); gerechnet wird in der App.
+Formeln: nur `+ - * /`, Klammern, `round()`, `min()`, `max()` und die Namen der Eingaben – kein Code.
+
+```json
+{
+  "id": "pizzateig",
+  "v": 1,
+  "name": "Pizzateig",
+  "inputs": [
+    {"key": "kugeln",  "label": "Wie viele Pizzen?", "type": "number", "min": 1, "max": 8, "default": 4},
+    {"key": "gewicht", "label": "Gewicht pro Kugel", "type": "number", "unit": "g", "min": 180, "max": 320, "default": 250},
+    {"key": "stil",    "label": "Stil", "type": "choice", "options": [
+      {"value": "napoletana", "label": "Neapolitanisch", "set": {"hydration": 0.65}},
+      {"value": "romana",     "label": "Römisch",        "set": {"hydration": 0.60}}
+    ]}
+  ],
+  "vars": {"teig": "kugeln * gewicht", "mehl": "round(teig / (1 + hydration + 0.03))"},
+  "ingredients": [
+    {"name": "Mehl Tipo 00", "amount": "mehl", "unit": "g", "weigh": true},
+    {"name": "Wasser", "amount": "round(mehl * hydration)", "unit": "g", "weigh": true}
+  ],
+  "steps": [
+    {"label": "Unterrühren", "speed": 6, "time": "60", "temperature": 0},
+    {"label": "Kneten", "speed": 7, "time": "round(240 + mehl * 0.2)", "temperature": 0}
+  ]
+}
+```
+
+Werte im Beispiel sind Platzhalter (werden an der Maschine ermittelt). Die Brücke prüft das erzeugte
+Programm wie jedes andere gegen die Sicherheitsregeln.
