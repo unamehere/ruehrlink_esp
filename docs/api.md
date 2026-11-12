@@ -23,7 +23,7 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 | Methode | Pfad | Zweck |
 |---|---|---|
 | GET | `/api/v1/info` | Gerät: id, name, fw, Maschine gekoppelt?, Speicher frei |
-| GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`) |
+| GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
 | POST | `/api/v1/sequence/start` | Multi-Programm laden `{"programId":"…"}` oder inline `{"steps":[…]}` |
@@ -85,13 +85,15 @@ ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden 
 Brücke → App:
 
 ```json
-{"t":"status","d":{"bowlTemperature":23,"speedSetting":0,"remainingTime":0,"motorOn":false,"bowlFitted":true,"HeadLiftInterlockClosed":true,"connected":true}}
+{"t":"status","d":{"connected":true,"running":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
 {"t":"weight","d":{"g":251.4}}
 {"t":"seq","d":{"programId":"dinkelteig","step":2,"of":4,"state":"running|waiting_start|paused|done|aborted","reason":null}}
 {"t":"ack","d":{"cmd":"setProgramme","ok":true}}
 {"t":"recipes","d":{"rev":42}}
 ```
 
+- `status` ist **geräteneutral**: `running` (Motor/Programm läuft), `lidClosed` (Kopf/Deckel verriegelt),
+  `bowlTemp`/`tempSet` in °C, `speedSet`, `remainingS` in Sekunden. Gerätespezifische Namen bleiben im Treiber.
 - `weight` max. 10 Nachrichten/s.
 - `recipes` signalisiert, dass sich die Bibliothek geändert hat → App holt `GET /recipes?since=`.
 
