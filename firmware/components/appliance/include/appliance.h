@@ -19,7 +19,7 @@ typedef struct {
     uint8_t speed_max;      // höchste Stufe (0 = aus)
     uint32_t time_max_s;    // längste Programmzeit
     bool has_scale;         // Waage vorhanden
-    bool remote_start;      // Start aus der Ferne möglich (Kenwood: nein, Wählknopf)
+    bool remote_start;      // Start aus der Ferne möglich (Kenwood: nein, Knopf drücken)
 } appliance_caps_t;
 
 // Ein Programmschritt: so wird er an das Gerät gesendet.
