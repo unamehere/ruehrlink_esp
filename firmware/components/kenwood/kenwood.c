@@ -35,8 +35,7 @@ extern const uint8_t setup_cert_start[] asm("_binary_setup_server_pem_start");
 extern const uint8_t setup_cert_end[] asm("_binary_setup_server_pem_end");
 
 // Stufen in der Reihenfolge des Drehknopfs: Rührintervalle/Puls ← Aus → Dauerstufen.
-// VORLÄUFIG: Die Werte `v` (was an die Maschine geht) sind noch nicht an der Maschine
-// ermittelt – siehe docs/testplan.md, Abschnitt 1. Labels laut Bedienungsanleitung.
+// `v` = Wert, der an die Maschine geht; Labels wie am Display.
 static const appliance_speed_t s_speeds[] = {
 #if CONFIG_FK_SPEED_TEST
     // Testmodus: rohe Werte, um die Zuordnung am Display abzulesen (docs/testplan.md, Abschnitt 1)
@@ -47,20 +46,21 @@ static const appliance_speed_t s_speeds[] = {
     {12, "12", APPLIANCE_SPEED_CONTINUOUS}, {13, "13", APPLIANCE_SPEED_CONTINUOUS}, {14, "14", APPLIANCE_SPEED_CONTINUOUS},
     {15, "15", APPLIANCE_SPEED_CONTINUOUS},
 #else
-    {12, "P", APPLIANCE_SPEED_STIR},
-    {13, "4", APPLIANCE_SPEED_STIR},
-    {14, "3", APPLIANCE_SPEED_STIR},
-    {15, "2", APPLIANCE_SPEED_STIR},
-    {16, "1", APPLIANCE_SPEED_STIR},
+    // Ermittelt an der KCL95 am 12.11.2026 (docs/testplan.md). Werte liegen NICHT in Knopf-Reihenfolge.
+    // P (Puls) ist per Fernsteuerung nicht verfügbar – nur am Gerät.
+    {3, "4", APPLIANCE_SPEED_STIR},
+    {2, "3", APPLIANCE_SPEED_STIR},
+    {1, "2", APPLIANCE_SPEED_STIR},
+    {4, "1", APPLIANCE_SPEED_STIR},
     {0, "Aus", APPLIANCE_SPEED_OFF},
-    {1, "min", APPLIANCE_SPEED_CONTINUOUS},
-    {2, "1", APPLIANCE_SPEED_CONTINUOUS},
-    {3, "2", APPLIANCE_SPEED_CONTINUOUS},
-    {4, "3", APPLIANCE_SPEED_CONTINUOUS},
-    {5, "4", APPLIANCE_SPEED_CONTINUOUS},
-    {6, "5", APPLIANCE_SPEED_CONTINUOUS},
-    {7, "6", APPLIANCE_SPEED_CONTINUOUS},
-    {8, "max", APPLIANCE_SPEED_CONTINUOUS},
+    {5, "min", APPLIANCE_SPEED_CONTINUOUS},
+    {6, "1", APPLIANCE_SPEED_CONTINUOUS},
+    {7, "2", APPLIANCE_SPEED_CONTINUOUS},
+    {8, "3", APPLIANCE_SPEED_CONTINUOUS},
+    {9, "4", APPLIANCE_SPEED_CONTINUOUS},
+    {10, "5", APPLIANCE_SPEED_CONTINUOUS},
+    {11, "6", APPLIANCE_SPEED_CONTINUOUS},
+    {12, "max", APPLIANCE_SPEED_CONTINUOUS},
 #endif
 };
 

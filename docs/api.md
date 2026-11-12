@@ -70,10 +70,11 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
       "name": "Cooking Chef XL",
       "tempMin": 20, "tempMax": 180,
       "speeds": [
-        {"v": 12, "label": "P", "group": "stir"},
+        {"v": 3, "label": "4", "group": "stir"},
+        {"v": 4, "label": "1", "group": "stir"},
         {"v": 0, "label": "Aus", "group": "off"},
-        {"v": 1, "label": "min", "group": "continuous"},
-        {"v": 8, "label": "max", "group": "continuous"}
+        {"v": 5, "label": "min", "group": "continuous"},
+        {"v": 12, "label": "max", "group": "continuous"}
       ],
       "timeMaxS": 28800,
       "hasScale": true,
