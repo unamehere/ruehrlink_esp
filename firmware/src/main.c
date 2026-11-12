@@ -17,6 +17,7 @@
 #include "kenwood.h"
 #include "led.h"
 #include "net.h"
+#include "provision.h"
 #include "storage.h"
 
 static const char *TAG = "freikoch";
@@ -63,6 +64,7 @@ void app_main(void)
     net_start();
     appliance_register(kenwood_driver());
     api_start();
+    provision_start();
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));

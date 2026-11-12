@@ -37,6 +37,7 @@ static esp_timer_handle_t s_reconnect_timer;
 static uint32_t s_backoff_ms = RECONNECT_MIN_MS;
 static volatile bool s_home_connected;
 static volatile bool s_home_paused;
+static volatile uint8_t s_last_reason;  // letzter Trennungsgrund Heim-WLAN (0 = keiner)
 static bool s_temp_active;          // STA steckt gerade in einem fremden WLAN (Kopplung)
 static wifi_config_t s_home_saved;
 
@@ -125,6 +126,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
     case WIFI_EVENT_STA_DISCONNECTED: {
         wifi_event_sta_disconnected_t *e = data;
         s_home_connected = false;
+        if (!s_temp_active) s_last_reason = e->reason;
         if (s_home_paused) break;
         ESP_LOGW(TAG, "Heim-WLAN getrennt (Grund %d), neuer Versuch in %lu s", e->reason,
                  (unsigned long)(s_backoff_ms / 1000));
@@ -158,6 +160,7 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
             return;
         }
         s_backoff_ms = RECONNECT_MIN_MS;
+        s_last_reason = 0;
         ESP_LOGI(TAG, "Heim-WLAN verbunden: " IPSTR " (%s.local)", IP2STR(&e->ip_info.ip), s_hostname);
     } else if (id == IP_EVENT_ASSIGNED_IP_TO_CLIENT) {
         ip_event_assigned_ip_to_client_t *e = data;
@@ -256,6 +259,26 @@ void net_ap_use_default(void)
 
 bool net_home_connected(void) { return s_home_connected; }
 
+const char *net_home_error(void)
+{
+    switch (s_last_reason) {
+    case 0: return NULL;
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_CONNECTION_FAIL: return "auth";
+    case WIFI_REASON_NO_AP_FOUND: return "not_found";
+    default: return "other";
+    }
+}
+
+void net_home_ssid(char *out, size_t len)
+{
+    wifi_config_t cfg = s_temp_active ? s_home_saved : (wifi_config_t){0};
+    if (!s_temp_active) esp_wifi_get_config(WIFI_IF_STA, &cfg);
+    snprintf(out, len, "%s", (char *)cfg.sta.ssid);
+}
+
 esp_err_t net_home_set(const char *ssid, const char *password)
 {
     wifi_config_t cfg = {0};
@@ -270,6 +293,7 @@ esp_err_t net_home_set(const char *ssid, const char *password)
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &cfg);  // wird in NVS gespeichert
     if (err != ESP_OK) return err;
     s_backoff_ms = RECONNECT_MIN_MS;
+    s_last_reason = 0;
     connect_home();
     return ESP_OK;
 }

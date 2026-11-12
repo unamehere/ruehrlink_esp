@@ -332,6 +332,8 @@ static void on_pair_request(const char *id, const char *name)
     broadcast("pairRequest", d);
 }
 
+void api_issue_token(char *out, size_t len) { auth_new_token(out, len); }
+
 esp_err_t api_start(void)
 {
     auth_init(on_pair_request);
