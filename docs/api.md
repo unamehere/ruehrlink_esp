@@ -47,7 +47,6 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | GET | `/api/v1/media/{sha256}` | Foto (WebP), unveränderlich, cachebar |
 | PUT | `/api/v1/media/{sha256}` | Foto hochladen (max. 1 MB) |
 | GET | `/api/v1/programs` | Programme (feste Abläufe) |
-| GET | `/api/v1/assistants` | Assistenten (Fragen + Formeln, siehe unten) |
 | POST | `/api/v1/machine/onboard` | Maschine koppeln (Ablauf siehe architektur.md) |
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
 | POST | `/api/v1/pair` | Kopplung anfragen (siehe oben) |
@@ -172,36 +171,8 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
 Die Werte im Beispiel sind Platzhalter – echte Werte werden an der Maschine ermittelt.
 Ob eine Ruhephase per `speed: 0` im laufenden Programm funktioniert, ist **noch zu testen**.
 
-### Assistent (Entwurf)
+### Assistenten
 
-Ein Assistent fragt nach, berechnet Zutaten und erzeugt daraus ein **Programm** (inline an
-`/sequence/start`). Die Brücke speichert Assistenten nur (wie Rezepte); gerechnet wird in der App.
-Formeln: nur `+ - * /`, Klammern, `round()`, `min()`, `max()` und die Namen der Eingaben – kein Code.
-
-```json
-{
-  "id": "pizzateig",
-  "v": 1,
-  "name": "Pizzateig",
-  "inputs": [
-    {"key": "kugeln",  "label": "Wie viele Pizzen?", "type": "number", "min": 1, "max": 8, "default": 4},
-    {"key": "gewicht", "label": "Gewicht pro Kugel", "type": "number", "unit": "g", "min": 180, "max": 320, "default": 250},
-    {"key": "stil",    "label": "Stil", "type": "choice", "options": [
-      {"value": "napoletana", "label": "Neapolitanisch", "set": {"hydration": 0.65}},
-      {"value": "romana",     "label": "Römisch",        "set": {"hydration": 0.60}}
-    ]}
-  ],
-  "vars": {"teig": "kugeln * gewicht", "mehl": "round(teig / (1 + hydration + 0.03))"},
-  "ingredients": [
-    {"name": "Mehl Tipo 00", "amount": "mehl", "unit": "g", "weigh": true},
-    {"name": "Wasser", "amount": "round(mehl * hydration)", "unit": "g", "weigh": true}
-  ],
-  "steps": [
-    {"label": "Unterrühren", "speed": 6, "time": "60", "temperature": 0},
-    {"label": "Kneten", "speed": 7, "time": "round(240 + mehl * 0.2)", "temperature": 0}
-  ]
-}
-```
-
-Werte im Beispiel sind Platzhalter (werden an der Maschine ermittelt). Die Brücke prüft das erzeugte
-Programm wie jedes andere gegen die Sicherheitsregeln.
+Assistenten (z. B. Pizzateig) sind **Code in der App**, nicht Teil dieser API (Entscheidung 12.11.):
+Sie fragen nach, berechnen Zutaten und erzeugen ein Programm, das die App inline an
+`POST /api/v1/sequence/start` schickt. Die Brücke prüft es wie jedes andere Programm.
