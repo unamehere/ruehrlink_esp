@@ -75,6 +75,7 @@ static void load_ap_password(void)
 // Sie liegen nie in einer Datei im Repo. Ab der Bluetooth-Einrichtung nicht mehr nötig.
 //   dev_ap_ssid / dev_ap_pass     Maschinen-WLAN überschreiben (Maschine schon anders gekoppelt)
 //   dev_home_ssid / dev_home_pass Heim-WLAN einmalig übernehmen (danach gelöscht)
+#if CONFIG_FK_DEVELOPER_MODE
 static void load_dev_overrides(char *home_ssid, size_t ssid_len, char *home_pass, size_t pass_len)
 {
     nvs_handle_t h;
@@ -98,6 +99,7 @@ static void load_dev_overrides(char *home_ssid, size_t ssid_len, char *home_pass
     }
     nvs_close(h);
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // Heim-WLAN: Verbinden mit Backoff, Pause für die Maschinen-Kopplung
@@ -333,7 +335,9 @@ esp_err_t net_start(void)
     init_identity();
     load_ap_password();
     char dev_ssid[33] = "", dev_pass[65] = "";
+#if CONFIG_FK_DEVELOPER_MODE
     load_dev_overrides(dev_ssid, sizeof(dev_ssid), dev_pass, sizeof(dev_pass));
+#endif
 
     ESP_ERROR_CHECK(esp_netif_init());
     start_ap_netif();

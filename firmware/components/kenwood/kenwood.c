@@ -229,8 +229,10 @@ static void onboard_task(void *arg)
     if (err == ESP_OK) {
         err = https_setup("/mac", HTTP_METHOD_GET, NULL);  // wie die Original-App; prüft zugleich das Zertifikat
         if (err != ESP_OK) {
-            // Diagnose: anderes Zertifikat? Dann ins Log, damit wir es nachtragen können.
+#if CONFIG_FK_DEVELOPER_MODE
+            // Diagnose: anderes Zertifikat? Nur ins serielle Log, wird NICHT übernommen.
             setup_cert_capture("192.168.4.1");
+#endif
         } else {
             char body[160];
             snprintf(body, sizeof(body), "{\"ssid\":\"%s\",\"password\":\"%s\"}", net_ap_ssid(), net_ap_password());

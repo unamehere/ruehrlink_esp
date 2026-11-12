@@ -1,0 +1,12 @@
+menu "Freikoch: Allgemein"
+
+config FK_DEVELOPER_MODE
+    bool "Entwicklermodus"
+    default n
+    help
+        Nur fuer Entwickler-Builds, nie in ausgelieferter Firmware:
+        - Entwickler-Zugangsdaten aus dem NVS (tools/dev_nvs.py) werden uebernommen
+        - Diagnose-Ausgaben auf der seriellen Konsole (z. B. fremdes Zertifikat
+          des Einrichtungs-Servers der Maschine)
+
+endmenu
