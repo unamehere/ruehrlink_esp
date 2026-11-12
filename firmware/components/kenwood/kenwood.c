@@ -10,10 +10,13 @@
 #include "esp_https_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "mbedtls/ssl.h"
+#include "mbedtls/x509_crt.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "net.h"
+#include "setup_cert.h"
 
 static const char *TAG = "kenwood";
 
@@ -27,6 +30,8 @@ extern const uint8_t cert_start[] asm("_binary_machine_cert_pem_start");
 extern const uint8_t cert_end[] asm("_binary_machine_cert_pem_end");
 extern const uint8_t key_start[] asm("_binary_machine_key_pem_start");
 extern const uint8_t key_end[] asm("_binary_machine_key_pem_end");
+extern const uint8_t setup_cert_start[] asm("_binary_setup_server_pem_start");
+extern const uint8_t setup_cert_end[] asm("_binary_setup_server_pem_end");
 
 // Stufen in der Reihenfolge des Drehknopfs: Rührintervalle/Puls ← Aus → Dauerstufen.
 // VORLÄUFIG: Die Werte `v` (was an die Maschine geht) sind noch nicht an der Maschine
@@ -163,6 +168,35 @@ static esp_err_t stop(void)
 #define SETUP_URL      "https://192.168.4.1"
 #define HOLD_CHANNEL_S 180
 
+// Pinning: Der Einrichtungs-Server der Maschine nutzt ein selbstsigniertes, seit 2021 abgelaufenes
+// Zertifikat (Drop Kitchen, CN 192.168.4.1, certs/setup_server.pem). Wir vertrauen genau diesem
+// einen Zertifikat, Byte für Byte; nur die Zeitprüfung entfällt (abgelaufen, Brücke ohne Uhr).
+static mbedtls_x509_crt s_pin;
+static bool s_pin_loaded;
+
+static int pin_verify(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
+{
+    bool same = crt->raw.len == s_pin.raw.len && memcmp(crt->raw.p, s_pin.raw.p, crt->raw.len) == 0;
+    if (same) *flags = 0;
+    else *flags |= MBEDTLS_X509_BADCERT_NOT_TRUSTED;
+    return 0;
+}
+
+static esp_err_t pin_attach(void *conf)
+{
+    if (!s_pin_loaded) {
+        mbedtls_x509_crt_init(&s_pin);
+        if (mbedtls_x509_crt_parse(&s_pin, setup_cert_start, setup_cert_end - setup_cert_start) != 0) {
+            return ESP_FAIL;
+        }
+        s_pin_loaded = true;
+    }
+    mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(conf, &s_pin, NULL);
+    mbedtls_ssl_conf_verify(conf, pin_verify, NULL);
+    return ESP_OK;
+}
+
 static esp_err_t https_setup(const char *path, esp_http_client_method_t method, const char *body)
 {
     char url[48];
@@ -171,8 +205,7 @@ static esp_err_t https_setup(const char *path, esp_http_client_method_t method, 
         .url = url,
         .method = method,
         .timeout_ms = 12000,
-        // TODO(Kopplung): Setup-Server der Maschine hat ein selbstsigniertes Zertifikat –
-        // Zertifikat pinnen (cert_pem) oder Pruefung abschalten, Entscheidung offen (docs/testplan.md).
+        .crt_bundle_attach = pin_attach,  // nur das hinterlegte Zertifikat der Maschine
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (body) {
@@ -188,15 +221,21 @@ static esp_err_t https_setup(const char *path, esp_http_client_method_t method, 
 static void onboard_task(void *arg)
 {
     char ssid[33] = "";
+    vTaskDelay(pdMS_TO_TICKS(1000));  // 202 an die App rausgehen lassen, bevor das Heim-WLAN getrennt wird
     appliance_report_onboard(APPLIANCE_ONBOARD_SEARCHING);
     net_ap_use_default();  // Maschine immer auf das reguläre "Freikoch-XXXX" koppeln
 
     esp_err_t err = net_temp_join(SETUP_PREFIX, ssid, sizeof(ssid), 20);
     if (err == ESP_OK) {
-        https_setup("/mac", HTTP_METHOD_GET, NULL);  // wie die Original-App; Antwort oft leer
-        char body[160];
-        snprintf(body, sizeof(body), "{\"ssid\":\"%s\",\"password\":\"%s\"}", net_ap_ssid(), net_ap_password());
-        err = https_setup("/join", HTTP_METHOD_POST, body);
+        err = https_setup("/mac", HTTP_METHOD_GET, NULL);  // wie die Original-App; prüft zugleich das Zertifikat
+        if (err != ESP_OK) {
+            // Diagnose: anderes Zertifikat? Dann ins Log, damit wir es nachtragen können.
+            setup_cert_capture("192.168.4.1");
+        } else {
+            char body[160];
+            snprintf(body, sizeof(body), "{\"ssid\":\"%s\",\"password\":\"%s\"}", net_ap_ssid(), net_ap_password());
+            err = https_setup("/join", HTTP_METHOD_POST, body);
+        }
     }
     net_temp_leave(err == ESP_OK ? HOLD_CHANNEL_S : 0);
 

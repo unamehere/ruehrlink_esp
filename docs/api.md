@@ -81,6 +81,9 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 - `POST /api/v1/machine/onboard` – kein Body, Antwort `202`. Fortschritt per WS:
   `{"t":"onboard","d":{"state":"searching|sent|done|failed","reason":null}}`.
   `done` kommt erst, wenn sich die Maschine tatsächlich mit der Brücke verbunden hat (max. 3 min).
+  **Während der Kopplung ist die Brücke im Heim-WLAN nicht erreichbar** (ca. 10 s bis 3 min): die STA geht ins
+  Setup-WLAN der Maschine und hält danach den Kanal. Die App zeigt den Schritt an und verbindet danach neu;
+  Ergebnis dann über `GET /info` (`appliance.connected`). Die WS-Meldungen `searching`/`sent` gehen evtl. verloren.
 
 `speeds` = wählbare Stufen in der Reihenfolge am Gerät (`group`: off/stir/continuous); gesendet wird `speed = v`,
 der Status meldet `speedSet = v`. Unbekannter Wert → App zeigt die Zahl.
