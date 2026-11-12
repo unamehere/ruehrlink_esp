@@ -12,13 +12,6 @@ build/
 *.key
 secrets.h
 
-# KiCad
-hardware/**/*-backups/
-hardware/**/*.kicad_prl
-hardware/**/fp-info-cache
-hardware/**/_autosave-*
-hardware/**/*.lck
-
 # Sonstiges
 .DS_Store
 Thumbs.db

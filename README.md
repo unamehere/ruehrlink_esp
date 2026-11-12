@@ -1,4 +1,4 @@
-# Freikoch Brücke – Firmware & Hardware
+# Freikoch Brücke – Firmware
 
 Die **Freikoch Brücke** ist eine kleine Box auf Basis des ESP32-S3. Sie ersetzt die
 abgeschaltete Hersteller-Cloud für die Küchenmaschine *Kenwood Cooking Chef XL (KCL95)*
@@ -24,7 +24,6 @@ und macht sie wieder vernetzt nutzbar – komplett lokal, ohne Internet, ohne Ko
 | Ordner | Inhalt |
 |---|---|
 | `firmware/` | Firmware, ESP-IDF über PlatformIO (`pio run`) |
-| `hardware/` | Schaltplan, Platine, Gehäuse (KiCad / STEP) |
 | `docs/` | Architektur, Maschinen-Protokoll, App-API |
 
 ## Firmware bauen
@@ -39,12 +38,13 @@ pio device monitor      # serielle Ausgabe
 ```
 
 Zielhardware für die Beta: ESP32-S3-DevKitC-1 mit N16R8 (16 MB Flash, 8 MB PSRAM) + microSD-Modul.
+Die Firmware läuft damit auf frei kaufbaren Teilen – eine eigene Platine ist nicht nötig.
 
 ## Status
 
-Frühe Entwicklung (MVP für die Beta, Dezember 2026). Der funktionierende Prototyp in
-MicroPython liegt als Referenz im Recherche-Ordner (`Kenwood/esp32/app/kenwood.py`).
+Frühe Entwicklung (MVP für die Beta, Dezember 2026).
 
 ## Lizenz
 
-Noch offen (Vorschlag: GPLv3 für die Firmware, CERN-OHL-S für die Hardware).
+Noch offen (Vorschlag: GPLv3). Die Hardware (Platine, Gehäuse) liegt in einem eigenen,
+derzeit nicht öffentlichen Repo `freikoch_hardware`.
