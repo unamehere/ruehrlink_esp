@@ -1,0 +1,9 @@
+menu "Freikoch: Status-LED"
+
+config FK_LED_GPIO
+    int "GPIO der RGB-Status-LED (WS2812)"
+    default 48
+    help
+        DevKit und eigene Platine: GPIO48.
+
+endmenu

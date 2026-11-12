@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 
 #include "net.h"
+#include "led.h"
 #include "setup_cert.h"
 
 static const char *TAG = "kenwood";
@@ -37,6 +38,15 @@ extern const uint8_t setup_cert_end[] asm("_binary_setup_server_pem_end");
 // VORLÄUFIG: Die Werte `v` (was an die Maschine geht) sind noch nicht an der Maschine
 // ermittelt – siehe docs/testplan.md, Abschnitt 1. Labels laut Bedienungsanleitung.
 static const appliance_speed_t s_speeds[] = {
+#if CONFIG_FK_SPEED_TEST
+    // Testmodus: rohe Werte, um die Zuordnung am Display abzulesen (docs/testplan.md, Abschnitt 1)
+    {0, "0", APPLIANCE_SPEED_OFF}, {1, "1", APPLIANCE_SPEED_CONTINUOUS}, {2, "2", APPLIANCE_SPEED_CONTINUOUS},
+    {3, "3", APPLIANCE_SPEED_CONTINUOUS}, {4, "4", APPLIANCE_SPEED_CONTINUOUS}, {5, "5", APPLIANCE_SPEED_CONTINUOUS},
+    {6, "6", APPLIANCE_SPEED_CONTINUOUS}, {7, "7", APPLIANCE_SPEED_CONTINUOUS}, {8, "8", APPLIANCE_SPEED_CONTINUOUS},
+    {9, "9", APPLIANCE_SPEED_CONTINUOUS}, {10, "10", APPLIANCE_SPEED_CONTINUOUS}, {11, "11", APPLIANCE_SPEED_CONTINUOUS},
+    {12, "12", APPLIANCE_SPEED_CONTINUOUS}, {13, "13", APPLIANCE_SPEED_CONTINUOUS}, {14, "14", APPLIANCE_SPEED_CONTINUOUS},
+    {15, "15", APPLIANCE_SPEED_CONTINUOUS},
+#else
     {12, "P", APPLIANCE_SPEED_STIR},
     {13, "4", APPLIANCE_SPEED_STIR},
     {14, "3", APPLIANCE_SPEED_STIR},
@@ -51,6 +61,7 @@ static const appliance_speed_t s_speeds[] = {
     {6, "5", APPLIANCE_SPEED_CONTINUOUS},
     {7, "6", APPLIANCE_SPEED_CONTINUOUS},
     {8, "max", APPLIANCE_SPEED_CONTINUOUS},
+#endif
 };
 
 // Werte vorläufig, an der Maschine zu prüfen (siehe docs/testplan.md)
@@ -223,6 +234,7 @@ static void onboard_task(void *arg)
     char ssid[33] = "";
     vTaskDelay(pdMS_TO_TICKS(1000));  // 202 an die App rausgehen lassen, bevor das Heim-WLAN getrennt wird
     appliance_report_onboard(APPLIANCE_ONBOARD_SEARCHING);
+    led_signal(LED_SETUP);
     net_ap_use_default();  // Maschine immer auf das reguläre "Freikoch-XXXX" koppeln
 
     esp_err_t err = net_temp_join(SETUP_PREFIX, ssid, sizeof(ssid), 20);
@@ -244,6 +256,7 @@ static void onboard_task(void *arg)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Kopplung fehlgeschlagen (%s)", esp_err_to_name(err));
         appliance_report_onboard(APPLIANCE_ONBOARD_FAILED);
+        led_signal(LED_ERROR);
     } else {
         appliance_report_onboard(APPLIANCE_ONBOARD_SENT);
         uint32_t before = s_connect_count;
@@ -252,6 +265,7 @@ static void onboard_task(void *arg)
         net_home_pause(0);
         ESP_LOGI(TAG, "Kopplung %s", ok ? "erfolgreich" : "ohne Verbindung der Maschine beendet");
         appliance_report_onboard(ok ? APPLIANCE_ONBOARD_DONE : APPLIANCE_ONBOARD_FAILED);
+        led_signal(ok ? LED_OK : LED_ERROR);
     }
     s_onboarding = false;
     vTaskDelete(NULL);

@@ -9,4 +9,9 @@ config FK_DEVELOPER_MODE
         - Diagnose-Ausgaben auf der seriellen Konsole (z. B. fremdes Zertifikat
           des Einrichtungs-Servers der Maschine)
 
+config FK_SPEED_TEST
+    bool "Testmodus Stufen (rohe Werte 0-15 statt benannter Stufen)"
+    depends on FK_DEVELOPER_MODE
+    default n
+
 endmenu

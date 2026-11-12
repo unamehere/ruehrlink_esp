@@ -15,6 +15,7 @@
 #include "api.h"
 #include "appliance.h"
 #include "kenwood.h"
+#include "led.h"
 #include "net.h"
 #include "storage.h"
 
@@ -49,6 +50,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Freikoch Bruecke startet");
     init_nvs();
+    led_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     if (storage_init() == ESP_OK) {

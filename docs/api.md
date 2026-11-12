@@ -11,12 +11,24 @@ entwickelt. Änderungen hier zuerst, dann im Code.
 
 ## Koppeln & Anmelden
 
-1. App ruft `POST /api/v1/pair` auf → Brücke blinkt blau, Antwort `202 {"pairing":"waiting"}`.
-2. Nutzerin drückt **die Taste an der Brücke** (innerhalb 60 s).
-3. Erneuter Aufruf `POST /api/v1/pair` → `200 {"token":"<zufällig, 32 Byte base64>"}`.
-4. Alle weiteren Aufrufe mit Header `Authorization: Bearer <token>` (WebSocket: `?token=`).
+Die Brücke hat **keine Taste für Kunden** (Entscheidung 12.11.). Gekoppelt wird so:
 
-Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-Ablauf.
+1. **Erstes Handy:** Bluetooth-Einrichtung. Der QR-Code auf dem Etikett enthält den Einrichtungs-Code;
+   die App erhält den Token direkt im Provisioning-Ablauf.
+2. **Weitere Handys**, zwei Wege:
+   - a) ebenfalls per Bluetooth mit dem QR-Code vom Etikett (Heim-WLAN ist dann schon eingerichtet), oder
+   - b) **Bestätigung durch ein schon gekoppeltes Handy:**
+     1. Neue App: `POST /api/v1/pair` mit `{"name":"Pixel 8a"}` → `202 {"pairing":"waiting","id":"<anfrage-id>"}`,
+        die LED der Brücke blinkt blau.
+     2. Alle gekoppelten Apps erhalten per WS `{"t":"pairRequest","d":{"id":"…","name":"Pixel 8a"}}` und fragen
+        „Neues Gerät möchte sich verbinden – erlauben?“.
+     3. Eine App bestätigt: `POST /api/v1/pair/approve` mit `{"id":"…"}` (mit Token) → `204`.
+     4. Die neue App ruft `POST /api/v1/pair` erneut auf → `200 {"token":"…"}` (einmalig).
+     Ohne Bestätigung verfällt die Anfrage nach 60 s.
+3. Alle weiteren Aufrufe mit Header `Authorization: Bearer <token>` (WebSocket: `?token=`).
+4. Nur im **Entwicklermodus** der Firmware bestätigt zusätzlich die BOOT-Taste des DevKits.
+
+Max. 8 gekoppelte Apps; die älteste fällt heraus.
 
 ## HTTP
 
@@ -37,6 +49,8 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 | GET | `/api/v1/programs` | Multi-Programm-Presets |
 | POST | `/api/v1/machine/onboard` | Maschine koppeln (Ablauf siehe architektur.md) |
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
+| POST | `/api/v1/pair` | Kopplung anfragen (siehe oben) |
+| POST | `/api/v1/pair/approve` | Kopplungsanfrage bestätigen `{"id"}` |
 | POST | `/api/v1/time` | Uhrzeit von der App setzen (die Brücke hat kein Internet/NTP) |
 
 ### `GET /api/v1/info`

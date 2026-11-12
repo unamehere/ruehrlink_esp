@@ -289,21 +289,52 @@ static esp_err_t h_time(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
+static const char *json_str(const cJSON *o, const char *key)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
+    return cJSON_IsString(v) ? v->valuestring : "";
+}
+
 static esp_err_t h_pair(httpd_req_t *req)
 {
-    char token[40];
+    cJSON *b = req->content_len ? read_body(req) : cJSON_CreateObject();
+    if (!b) return ESP_OK;
+    char id[24], token[40];
+    auth_pair_result_t r = auth_pair(json_str(b, "id"), json_str(b, "name"), id, sizeof(id), token, sizeof(token));
+    cJSON_Delete(b);
     cJSON *o = cJSON_CreateObject();
-    if (auth_pair(token, sizeof(token))) {
+    if (r == AUTH_PAIR_TOKEN) {
         cJSON_AddStringToObject(o, "token", token);
         return send_json(req, "200 OK", o);
     }
     cJSON_AddStringToObject(o, "pairing", "waiting");
+    cJSON_AddStringToObject(o, "id", id);
     return send_json(req, "202 Accepted", o);
+}
+
+static esp_err_t h_pair_approve(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    cJSON *b = read_body(req);
+    if (!b) return ESP_OK;
+    bool ok = auth_approve(json_str(b, "id"));
+    cJSON_Delete(b);
+    if (!ok) return send_error(req, "404 Not Found", "request");
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static void on_pair_request(const char *id, const char *name)
+{
+    cJSON *d = cJSON_CreateObject();
+    cJSON_AddStringToObject(d, "id", id);
+    cJSON_AddStringToObject(d, "name", name);
+    broadcast("pairRequest", d);
 }
 
 esp_err_t api_start(void)
 {
-    auth_init();
+    auth_init(on_pair_request);
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_open_sockets = MAX_CLIENTS - 1;
@@ -323,6 +354,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/machine/onboard", .method = HTTP_POST, .handler = h_onboard},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
         {.uri = "/api/v1/pair", .method = HTTP_POST, .handler = h_pair},
+        {.uri = "/api/v1/pair/approve", .method = HTTP_POST, .handler = h_pair_approve},
         {.uri = "/api/v1/ws", .method = HTTP_GET, .handler = ws_handler, .is_websocket = true,
          .ws_pre_handshake_cb = ws_pre_handshake},
     };

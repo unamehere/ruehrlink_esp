@@ -1,9 +1,0 @@
-menu "Freikoch: App-API"
-
-config FK_PAIR_BUTTON_GPIO
-    int "GPIO der Taste zum Koppeln (aktiv low)"
-    default 0
-    help
-        DevKit: BOOT-Taste = GPIO0.
-
-endmenu

@@ -1,14 +1,26 @@
-// Tokens der gekoppelten Apps (intern im Modul api)
+// Tokens der gekoppelten Apps (intern im Modul api). Ablauf siehe docs/api.md "Koppeln & Anmelden".
 #pragma once
 
 #include <stdbool.h>
 #include <stddef.h>
 
-void auth_init(void);
+typedef void (*auth_request_cb_t)(const char *id, const char *name);
+
+// on_request: wird bei einer neuen Kopplungsanfrage aufgerufen (→ WS an gekoppelte Apps).
+void auth_init(auth_request_cb_t on_request);
 
 // Prüft "Bearer <token>" bzw. einen nackten Token.
 bool auth_check(const char *token);
 
-// Kopplung per Taste: erster Aufruf öffnet ein 60-s-Fenster, nach Tastendruck liefert der
-// nächste Aufruf einmalig einen neuen Token. Rückgabe: true + token gefüllt, sonst false.
-bool auth_pair(char *token_out, size_t len);
+typedef enum { AUTH_PAIR_WAITING, AUTH_PAIR_TOKEN } auth_pair_result_t;
+
+// Neue Anfrage (id leer) oder Nachfrage zu einer bestehenden (id gesetzt).
+// WAITING: id_out enthält die Anfrage-ID. TOKEN: token_out enthält den neuen Token (einmalig).
+auth_pair_result_t auth_pair(const char *id, const char *name, char *id_out, size_t id_len,
+                             char *token_out, size_t token_len);
+
+// Bestätigung durch eine gekoppelte App. false, wenn die Anfrage nicht (mehr) existiert.
+bool auth_approve(const char *id);
+
+// Token für die Bluetooth-Einrichtung erzeugen und speichern.
+void auth_new_token(char *token_out, size_t len);
