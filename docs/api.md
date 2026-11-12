@@ -51,6 +51,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
 | POST | `/api/v1/pair` | Kopplung anfragen (siehe oben) |
 | POST | `/api/v1/pair/approve` | Kopplungsanfrage bestätigen `{"id"}` |
+| POST | `/api/v1/reset` | Werksreset (siehe unten), danach Neustart |
 | POST | `/api/v1/time` | Uhrzeit von der App setzen (die Brücke hat kein Internet/NTP) |
 
 ### `GET /api/v1/info`
@@ -85,6 +86,10 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 ```
 
 ### Einzelheiten
+
+- `POST /api/v1/reset` – Antwort `202`, nach 0,5 s Werksreset und Neustart. Gelöscht: Heim-WLAN, alle
+  App-Tokens, Passwort des Maschinen-WLANs (Maschine muss neu gekoppelt werden). Bleibt: Einrichtungs-Code
+  (QR auf dem Etikett) und Rezepte. Ohne App: Netzteil 5× kurz hintereinander aus/ein (< 10 s an).
 
 - `POST /api/v1/time` – Body `{"epoch": 1794500000, "tz": "Europe/Berlin"}` (Unix-Sekunden, IANA-Zone).
   Antwort `204`. Die App schickt das bei jedem Verbinden.

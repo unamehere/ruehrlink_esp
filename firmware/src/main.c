@@ -14,6 +14,7 @@
 
 #include "api.h"
 #include "appliance.h"
+#include "factory.h"
 #include "kenwood.h"
 #include "led.h"
 #include "net.h"
@@ -51,6 +52,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Freikoch Bruecke startet");
     init_nvs();
+    factory_check_power_cycles();
     led_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 

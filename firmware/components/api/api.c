@@ -12,6 +12,7 @@
 
 #include "appliance.h"
 #include "auth.h"
+#include "factory.h"
 #include "net.h"
 #include "storage.h"
 
@@ -274,6 +275,14 @@ static esp_err_t h_onboard(httpd_req_t *req)
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
 
+static esp_err_t h_reset(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    ESP_LOGW(TAG, "Werksreset aus der App");
+    factory_reset_later(500);
+    return send_json(req, "202 Accepted", cJSON_CreateObject());
+}
+
 static esp_err_t h_time(httpd_req_t *req)
 {
     if (!authorized(req)) return ESP_OK;
@@ -355,6 +364,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/machine/stop", .method = HTTP_POST, .handler = h_stop},
         {.uri = "/api/v1/machine/onboard", .method = HTTP_POST, .handler = h_onboard},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
+        {.uri = "/api/v1/reset", .method = HTTP_POST, .handler = h_reset},
         {.uri = "/api/v1/pair", .method = HTTP_POST, .handler = h_pair},
         {.uri = "/api/v1/pair/approve", .method = HTTP_POST, .handler = h_pair_approve},
         {.uri = "/api/v1/ws", .method = HTTP_GET, .handler = ws_handler, .is_websocket = true,
