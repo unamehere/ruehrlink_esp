@@ -11,6 +11,8 @@
 #include "esp_srp.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 #include "nvs.h"
@@ -113,33 +115,72 @@ static esp_err_t ep_info(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t
     return reply(o, out, outlen);
 }
 
+// WLAN-Suche im Hintergrund: Eine blockierende Suche (2–3 s) im Bluetooth-Handler legt den
+// BLE-Host lahm, das Handy bricht dann die Verbindung ab. fk-scan antwortet deshalb sofort mit
+// {"scanning":true|false,"networks":[…]} aus dem Zwischenspeicher; die App fragt nach.
+static SemaphoreHandle_t s_scan_lock;
+static char *s_scan_json;           // zuletzt gefundene Netze als JSON-Array
+static int64_t s_scan_time;
+static volatile bool s_scanning;
+
+static void start_scan(void)
+{
+    if (s_scanning) return;
+    wifi_scan_config_t sc = {
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active = {.min = 60, .max = 120},  // ms pro Kanal
+    };
+    if (esp_wifi_scan_start(&sc, false) == ESP_OK) s_scanning = true;
+}
+
+static void on_scan_done(void *arg, esp_event_base_t base, int32_t id, void *data)
+{
+    if (!s_scanning) return;  // Suche eines anderen Moduls (z. B. Maschinen-Kopplung)
+    uint16_t n = 30;
+    wifi_ap_record_t *r = calloc(n, sizeof(*r));
+    cJSON *list = cJSON_CreateArray();
+    if (r && esp_wifi_scan_get_ap_records(&n, r) == ESP_OK) {
+        int added = 0;
+        for (int i = 0; i < n && added < MAX_SCAN; i++) {  // nach Signal sortiert; doppelte SSIDs weglassen
+            const char *ss = (const char *)r[i].ssid;
+            if (!ss[0] || strncmp(ss, "Freikoch-", 9) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
+            bool dup = false;
+            for (int j = 0; j < i && !dup; j++) dup = strcmp(ss, (const char *)r[j].ssid) == 0;
+            if (dup) continue;
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddStringToObject(e, "ssid", ss);
+            cJSON_AddNumberToObject(e, "rssi", r[i].rssi);
+            cJSON_AddBoolToObject(e, "secure", r[i].authmode != WIFI_AUTH_OPEN);
+            cJSON_AddItemToArray(list, e);
+            added++;
+        }
+    }
+    free(r);
+    char *js = cJSON_PrintUnformatted(list);
+    cJSON_Delete(list);
+    xSemaphoreTake(s_scan_lock, portMAX_DELAY);
+    free(s_scan_json);
+    s_scan_json = js;
+    s_scan_time = esp_timer_get_time();
+    xSemaphoreGive(s_scan_lock);
+    s_scanning = false;
+    ESP_LOGI(TAG, "WLAN-Suche fertig");
+}
+
 static esp_err_t ep_scan(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t **out, ssize_t *outlen, void *p)
 {
-    wifi_scan_config_t sc = {.show_hidden = false};
-    cJSON *list = cJSON_CreateArray();
-    if (esp_wifi_scan_start(&sc, true) == ESP_OK) {
-        uint16_t n = 30;
-        wifi_ap_record_t *r = calloc(n, sizeof(*r));
-        if (r && esp_wifi_scan_get_ap_records(&n, r) == ESP_OK) {
-            int added = 0;
-            for (int i = 0; i < n && added < MAX_SCAN; i++) {  // nach Signal sortiert; doppelte SSIDs weglassen
-                const char *ss = (const char *)r[i].ssid;
-                if (!ss[0] || strncmp(ss, "Freikoch-", 9) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
-                bool dup = false;
-                for (int j = 0; j < i && !dup; j++) dup = strcmp(ss, (const char *)r[j].ssid) == 0;
-                if (dup) continue;
-                cJSON *e = cJSON_CreateObject();
-                cJSON_AddStringToObject(e, "ssid", ss);
-                cJSON_AddNumberToObject(e, "rssi", r[i].rssi);
-                cJSON_AddBoolToObject(e, "secure", r[i].authmode != WIFI_AUTH_OPEN);
-                cJSON_AddItemToArray(list, e);
-                added++;
-            }
-        }
-        free(r);
-    }
+    cJSON *b = inlen > 0 ? cJSON_ParseWithLength((const char *)in, inlen) : NULL;
+    bool refresh = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(b, "refresh"));
+    cJSON_Delete(b);
+    if (refresh || !s_scan_json || esp_timer_get_time() - s_scan_time > 20 * 1000000LL) start_scan();
+
     cJSON *o = cJSON_CreateObject();
-    cJSON_AddItemToObject(o, "networks", list);
+    cJSON_AddBoolToObject(o, "scanning", s_scanning);
+    xSemaphoreTake(s_scan_lock, portMAX_DELAY);
+    cJSON *list = s_scan_json ? cJSON_Parse(s_scan_json) : NULL;
+    xSemaphoreGive(s_scan_lock);
+    cJSON_AddItemToObject(o, "networks", list ? list : cJSON_CreateArray());
     return reply(o, out, outlen);
 }
 
@@ -216,6 +257,10 @@ esp_err_t provision_start(void)
     network_prov_mgr_endpoint_register("fk-wifi", ep_wifi, NULL);
     network_prov_mgr_endpoint_register("fk-token", ep_token, NULL);
     s_running = true;
+
+    s_scan_lock = xSemaphoreCreateMutex();
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, on_scan_done, NULL);
+    if (!net_home_configured()) start_scan();  // Liste liegt bereit, wenn die App fragt
 
     const esp_timer_create_args_t t = {.callback = stop_cb, .name = "prov_stop"};
     esp_timer_create(&t, &s_stop_timer);
