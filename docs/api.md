@@ -64,6 +64,19 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 }
 ```
 
+### Einzelheiten
+
+- `POST /api/v1/time` – Body `{"epoch": 1794500000, "tz": "Europe/Berlin"}` (Unix-Sekunden, IANA-Zone).
+  Antwort `204`. Die App schickt das bei jedem Verbinden.
+- `POST /api/v1/machine/stop` – kein Body, Antwort `202`. Die Brücke sendet intern `time = 1`;
+  die Maschine bestätigt das wie jedes `setProgramme` → WS `ack`.
+- `POST /api/v1/machine/program` – Antwort `202` sofort; ob die Maschine übernommen hat,
+  zeigt das WS-Ereignis `ack` (bei Ausbleiben nach 5 s: `{"t":"ack","d":{"cmd":"setProgramme","ok":false}}`).
+  `400` bei Werten außerhalb von `caps`, `409` wenn keine Maschine verbunden ist.
+- `POST /api/v1/machine/onboard` – kein Body, Antwort `202`. Fortschritt per WS:
+  `{"t":"onboard","d":{"state":"searching|sent|done|failed","reason":null}}`.
+  `done` kommt erst, wenn sich die Maschine tatsächlich mit der Brücke verbunden hat (max. 3 min).
+
 **Die App baut Regler und Grenzen aus `caps`** – nie fest einprogrammiert. So funktioniert
 ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden an der Maschine geprüft.
 

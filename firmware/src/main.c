@@ -12,6 +12,8 @@
 #include "esp_event.h"
 #include "nvs_flash.h"
 
+#include "appliance.h"
+#include "kenwood.h"
 #include "net.h"
 #include "storage.h"
 
@@ -56,6 +58,7 @@ void app_main(void)
     }
 
     net_start();
+    appliance_register(kenwood_driver());
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
