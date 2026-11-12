@@ -4,7 +4,6 @@ firmware/.vscode/
 firmware/sdkconfig.*
 !firmware/sdkconfig.defaults
 firmware/managed_components/
-firmware/dependencies.lock
 build/
 
 # Geheimnisse / gerätespezifisch
@@ -15,3 +14,6 @@ secrets.h
 # Sonstiges
 .DS_Store
 Thumbs.db
+
+# absichtlich öffentliches Zertifikat für die Maschinen-Seite (siehe README dort)
+!firmware/components/kenwood/certs/*.pem

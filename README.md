@@ -46,5 +46,4 @@ Frühe Entwicklung (MVP für die Beta, Dezember 2026).
 
 ## Lizenz
 
-Noch offen (Vorschlag: GPLv3). Die Hardware (Platine, Gehäuse) liegt in einem eigenen,
-derzeit nicht öffentlichen Repo `freikoch_hardware`.
+Noch offen (Vorschlag: GPLv3). 

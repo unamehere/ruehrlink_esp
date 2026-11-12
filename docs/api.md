@@ -39,6 +39,34 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
 | POST | `/api/v1/time` | Uhrzeit von der App setzen (die Brücke hat kein Internet/NTP) |
 
+### `GET /api/v1/info`
+
+```json
+{
+  "id": "98C0",
+  "name": "Freikoch Brücke",
+  "fw": "0.1.0",
+  "api": 1,
+  "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
+  "appliance": {
+    "paired": true,
+    "connected": true,
+    "caps": {
+      "model": "kenwood-kcl95",
+      "name": "Cooking Chef XL",
+      "tempMin": 20, "tempMax": 180,
+      "speedMax": 10,
+      "timeMaxS": 28800,
+      "hasScale": true,
+      "remoteStart": false
+    }
+  }
+}
+```
+
+**Die App baut Regler und Grenzen aus `caps`** – nie fest einprogrammiert. So funktioniert
+ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden an der Maschine geprüft.
+
 ## WebSocket `/api/v1/ws`
 
 Brücke → App:
