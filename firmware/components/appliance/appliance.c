@@ -64,7 +64,9 @@ esp_err_t appliance_send(const appliance_program_t *p)
     if (!s_drv) return ESP_ERR_INVALID_STATE;
     const appliance_caps_t *c = s_drv->caps;
     bool temp_ok = p->temperature == 0 || (p->temperature >= c->temp_min && p->temperature <= c->temp_max);
-    if (!temp_ok || p->speed > c->speed_max || p->time_s > c->time_max_s) {
+    bool speed_ok = false;
+    for (int i = 0; i < c->n_speeds; i++) speed_ok |= c->speeds[i].v == p->speed;
+    if (!temp_ok || !speed_ok || p->time_s > c->time_max_s) {
         ESP_LOGW(TAG, "Werte ausserhalb der Grenzen: %d C, %lu s, Stufe %u", p->temperature,
                  (unsigned long)p->time_s, p->speed);
         return ESP_ERR_INVALID_ARG;

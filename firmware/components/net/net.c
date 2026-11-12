@@ -11,6 +11,8 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lwip/inet.h"
 #include "mdns.h"
 #include "nvs.h"
@@ -35,6 +37,8 @@ static esp_timer_handle_t s_reconnect_timer;
 static uint32_t s_backoff_ms = RECONNECT_MIN_MS;
 static volatile bool s_home_connected;
 static volatile bool s_home_paused;
+static bool s_temp_active;          // STA steckt gerade in einem fremden WLAN (Kopplung)
+static wifi_config_t s_home_saved;
 
 // ---------------------------------------------------------------------------
 // Identität und AP-Passwort
@@ -147,6 +151,10 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     if (id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
         s_home_connected = true;
+        if (s_temp_active) {
+            ESP_LOGI(TAG, "im fremden WLAN: " IPSTR, IP2STR(&e->ip_info.ip));
+            return;
+        }
         s_backoff_ms = RECONNECT_MIN_MS;
         ESP_LOGI(TAG, "Heim-WLAN verbunden: " IPSTR " (%s.local)", IP2STR(&e->ip_info.ip), s_hostname);
     } else if (id == IP_EVENT_ASSIGNED_IP_TO_CLIENT) {
@@ -157,8 +165,91 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
 
 bool net_home_configured(void)
 {
+    if (s_temp_active) return s_home_saved.sta.ssid[0] != '\0';
     wifi_config_t cfg = {0};
     return esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0] != '\0';
+}
+
+// ---------------------------------------------------------------------------
+// Vorübergehend in ein fremdes, offenes WLAN (Setup-WLAN des Geräts bei der Kopplung)
+
+esp_err_t net_temp_join(const char *prefix, char *ssid_out, size_t ssid_len, uint32_t timeout_s)
+{
+    // Heim-WLAN merken und trennen; die neue STA-Konfiguration nur im RAM halten
+    esp_wifi_get_config(WIFI_IF_STA, &s_home_saved);
+    s_temp_active = true;
+    s_home_paused = true;
+    esp_timer_stop(s_reconnect_timer);
+    esp_wifi_disconnect();
+
+    wifi_ap_record_t best = {0};
+    bool found = false;
+    for (int attempt = 0; attempt < 5 && !found; attempt++) {
+        wifi_scan_config_t sc = {.show_hidden = false};
+        if (esp_wifi_scan_start(&sc, true) != ESP_OK) continue;
+        uint16_t n = 20;
+        wifi_ap_record_t recs[20];
+        esp_wifi_scan_get_ap_records(&n, recs);
+        for (int i = 0; i < n; i++) {
+            if (strncmp((char *)recs[i].ssid, prefix, strlen(prefix)) == 0 && (!found || recs[i].rssi > best.rssi)) {
+                best = recs[i];
+                found = true;
+            }
+        }
+        if (!found) vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+    if (!found) {
+        ESP_LOGW(TAG, "kein WLAN \"%s...\" gefunden", prefix);
+        return ESP_ERR_NOT_FOUND;
+    }
+    snprintf(ssid_out, ssid_len, "%s", (char *)best.ssid);
+    ESP_LOGI(TAG, "verbinde mit %s (Kanal %d, %d dBm)", ssid_out, best.primary, best.rssi);
+
+    wifi_config_t cfg = {0};
+    memcpy(cfg.sta.ssid, best.ssid, sizeof(cfg.sta.ssid));
+    cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    s_home_connected = false;
+    esp_wifi_connect();
+    for (uint32_t i = 0; i < timeout_s * 10 && !s_home_connected; i++) vTaskDelay(pdMS_TO_TICKS(100));
+    return s_home_connected ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+void net_temp_leave(uint32_t hold_s)
+{
+    if (!s_temp_active) return;
+    esp_wifi_disconnect();
+    esp_wifi_set_config(WIFI_IF_STA, &s_home_saved);  // nur RAM, im Flash steht das Heim-WLAN noch
+    esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    s_temp_active = false;
+    s_home_connected = false;
+    // Kanal halten, damit sich das Gerät mit unserem AP verbinden kann (sonst E34)
+    net_home_pause(hold_s);
+}
+
+void net_ap_use_default(void)
+{
+    nvs_handle_t h;
+    bool had = false;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        had = nvs_erase_key(h, "dev_ap_ssid") == ESP_OK;
+        nvs_erase_key(h, "dev_ap_pass");
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    if (!had) return;
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Freikoch-%s", s_id);
+    load_ap_password();
+    wifi_config_t ap = {0};
+    esp_wifi_get_config(WIFI_IF_AP, &ap);
+    memset(ap.ap.ssid, 0, sizeof(ap.ap.ssid));
+    memset(ap.ap.password, 0, sizeof(ap.ap.password));
+    strcpy((char *)ap.ap.ssid, s_ap_ssid);
+    ap.ap.ssid_len = strlen(s_ap_ssid);
+    strcpy((char *)ap.ap.password, s_ap_pass);
+    esp_wifi_set_config(WIFI_IF_AP, &ap);
+    ESP_LOGW(TAG, "Entwickler-Maschinen-WLAN entfernt, jetzt %s", s_ap_ssid);
 }
 
 bool net_home_connected(void) { return s_home_connected; }

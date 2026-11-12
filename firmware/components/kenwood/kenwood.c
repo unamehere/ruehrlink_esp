@@ -6,9 +6,14 @@
 #include <unistd.h>
 
 #include "cJSON.h"
+#include "esp_http_client.h"
 #include "esp_https_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "net.h"
 
 static const char *TAG = "kenwood";
 
@@ -23,13 +28,34 @@ extern const uint8_t cert_end[] asm("_binary_machine_cert_pem_end");
 extern const uint8_t key_start[] asm("_binary_machine_key_pem_start");
 extern const uint8_t key_end[] asm("_binary_machine_key_pem_end");
 
+// Stufen in der Reihenfolge des Drehknopfs: Rührintervalle/Puls ← Aus → Dauerstufen.
+// VORLÄUFIG: Die Werte `v` (was an die Maschine geht) sind noch nicht an der Maschine
+// ermittelt – siehe docs/testplan.md, Abschnitt 1. Labels laut Bedienungsanleitung.
+static const appliance_speed_t s_speeds[] = {
+    {12, "P", APPLIANCE_SPEED_STIR},
+    {13, "4", APPLIANCE_SPEED_STIR},
+    {14, "3", APPLIANCE_SPEED_STIR},
+    {15, "2", APPLIANCE_SPEED_STIR},
+    {16, "1", APPLIANCE_SPEED_STIR},
+    {0, "Aus", APPLIANCE_SPEED_OFF},
+    {1, "min", APPLIANCE_SPEED_CONTINUOUS},
+    {2, "1", APPLIANCE_SPEED_CONTINUOUS},
+    {3, "2", APPLIANCE_SPEED_CONTINUOUS},
+    {4, "3", APPLIANCE_SPEED_CONTINUOUS},
+    {5, "4", APPLIANCE_SPEED_CONTINUOUS},
+    {6, "5", APPLIANCE_SPEED_CONTINUOUS},
+    {7, "6", APPLIANCE_SPEED_CONTINUOUS},
+    {8, "max", APPLIANCE_SPEED_CONTINUOUS},
+};
+
 // Werte vorläufig, an der Maschine zu prüfen (siehe docs/testplan.md)
 static const appliance_caps_t s_caps = {
     .model = "kenwood-kcl95",
     .name = "Cooking Chef XL",
     .temp_min = 20,
     .temp_max = 180,
-    .speed_max = 10,
+    .speeds = s_speeds,
+    .n_speeds = sizeof(s_speeds) / sizeof(s_speeds[0]),
     .time_max_s = 8 * 3600,
     .has_scale = true,
     .remote_start = false,
@@ -42,6 +68,8 @@ static int64_t s_last_rx_us;
 static appliance_status_t s_st;
 static esp_timer_handle_t s_ping_timer;
 static esp_timer_handle_t s_ack_timer;
+static volatile uint32_t s_connect_count;   // zählt neue Verbindungen (für die Kopplung)
+static volatile bool s_onboarding;
 
 // ---------------------------------------------------------------------------
 // Verbindungszustand
@@ -51,6 +79,7 @@ static void set_connected(bool on)
     if (s_st.connected == on) return;
     s_st.connected = on;
     if (!on) s_ws_fd = -1;
+    else s_connect_count++;
     ESP_LOGI(TAG, "%s", on ? "*** Maschine verbunden ***" : "Maschine getrennt");
     appliance_set_status(&s_st);
 }
@@ -125,10 +154,77 @@ static esp_err_t stop(void)
     return send_program(&p);
 }
 
+// ---------------------------------------------------------------------------
+// Kopplung: Maschine im Modus "WiFi -> Verbinden" öffnet ein offenes Setup-WLAN "KENWOOD…"
+// (IP 192.168.4.1). Wir verbinden uns damit und übergeben per HTTPS POST /join unser
+// Maschinen-WLAN. Siehe docs/architektur.md.
+
+#define SETUP_PREFIX   "KENWOOD"
+#define SETUP_URL      "https://192.168.4.1"
+#define HOLD_CHANNEL_S 180
+
+static esp_err_t https_setup(const char *path, esp_http_client_method_t method, const char *body)
+{
+    char url[48];
+    snprintf(url, sizeof(url), SETUP_URL "%s", path);
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = method,
+        .timeout_ms = 12000,
+        // TODO(Kopplung): Setup-Server der Maschine hat ein selbstsigniertes Zertifikat –
+        // Zertifikat pinnen (cert_pem) oder Pruefung abschalten, Entscheidung offen (docs/testplan.md).
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (body) {
+        esp_http_client_set_header(c, "Content-Type", "application/json");
+        esp_http_client_set_post_field(c, body, strlen(body));
+    }
+    esp_err_t err = esp_http_client_perform(c);
+    ESP_LOGI(TAG, "Kopplung %s: %s, HTTP %d", path, esp_err_to_name(err), esp_http_client_get_status_code(c));
+    esp_http_client_cleanup(c);
+    return err;
+}
+
+static void onboard_task(void *arg)
+{
+    char ssid[33] = "";
+    appliance_report_onboard(APPLIANCE_ONBOARD_SEARCHING);
+    net_ap_use_default();  // Maschine immer auf das reguläre "Freikoch-XXXX" koppeln
+
+    esp_err_t err = net_temp_join(SETUP_PREFIX, ssid, sizeof(ssid), 20);
+    if (err == ESP_OK) {
+        https_setup("/mac", HTTP_METHOD_GET, NULL);  // wie die Original-App; Antwort oft leer
+        char body[160];
+        snprintf(body, sizeof(body), "{\"ssid\":\"%s\",\"password\":\"%s\"}", net_ap_ssid(), net_ap_password());
+        err = https_setup("/join", HTTP_METHOD_POST, body);
+    }
+    net_temp_leave(err == ESP_OK ? HOLD_CHANNEL_S : 0);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Kopplung fehlgeschlagen (%s)", esp_err_to_name(err));
+        appliance_report_onboard(APPLIANCE_ONBOARD_FAILED);
+    } else {
+        appliance_report_onboard(APPLIANCE_ONBOARD_SENT);
+        uint32_t before = s_connect_count;
+        for (int i = 0; i < HOLD_CHANNEL_S && s_connect_count == before; i++) vTaskDelay(pdMS_TO_TICKS(1000));
+        bool ok = s_connect_count != before;
+        net_home_pause(0);
+        ESP_LOGI(TAG, "Kopplung %s", ok ? "erfolgreich" : "ohne Verbindung der Maschine beendet");
+        appliance_report_onboard(ok ? APPLIANCE_ONBOARD_DONE : APPLIANCE_ONBOARD_FAILED);
+    }
+    s_onboarding = false;
+    vTaskDelete(NULL);
+}
+
 static esp_err_t onboard(void)
 {
-    // TODO: Setup-WLAN "KENWOOD…" suchen, POST https://192.168.4.1/join (siehe architektur.md)
-    return ESP_ERR_NOT_SUPPORTED;
+    if (s_onboarding) return ESP_ERR_INVALID_STATE;
+    s_onboarding = true;
+    if (xTaskCreate(onboard_task, "kw_onboard", 6144, NULL, 4, NULL) != pdPASS) {
+        s_onboarding = false;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 // ---------------------------------------------------------------------------

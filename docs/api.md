@@ -55,7 +55,12 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
       "model": "kenwood-kcl95",
       "name": "Cooking Chef XL",
       "tempMin": 20, "tempMax": 180,
-      "speedMax": 10,
+      "speeds": [
+        {"v": 12, "label": "P", "group": "stir"},
+        {"v": 0, "label": "Aus", "group": "off"},
+        {"v": 1, "label": "min", "group": "continuous"},
+        {"v": 8, "label": "max", "group": "continuous"}
+      ],
       "timeMaxS": 28800,
       "hasScale": true,
       "remoteStart": false
@@ -76,6 +81,9 @@ Bei Einrichtung per Bluetooth erhält die App den Token direkt im Provisioning-A
 - `POST /api/v1/machine/onboard` – kein Body, Antwort `202`. Fortschritt per WS:
   `{"t":"onboard","d":{"state":"searching|sent|done|failed","reason":null}}`.
   `done` kommt erst, wenn sich die Maschine tatsächlich mit der Brücke verbunden hat (max. 3 min).
+
+`speeds` = wählbare Stufen in der Reihenfolge am Gerät (`group`: off/stir/continuous); gesendet wird `speed = v`,
+der Status meldet `speedSet = v`. Unbekannter Wert → App zeigt die Zahl.
 
 **Die App baut Regler und Grenzen aus `caps`** – nie fest einprogrammiert. So funktioniert
 ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden an der Maschine geprüft.

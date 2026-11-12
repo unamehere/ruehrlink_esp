@@ -8,6 +8,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -31,6 +32,14 @@ bool net_home_configured(void);
 // Heim-WLAN für max. `seconds` trennen, damit der AP-Kanal stabil bleibt
 // (Kopplung der Maschine, sonst E34). 0 = sofort wieder verbinden.
 void net_home_pause(uint32_t seconds);
+
+// Kopplung eines Geräts: STA vorübergehend mit dem offenen WLAN verbinden, dessen Name mit
+// `prefix` beginnt (stärkstes Signal). Blockiert bis verbunden oder Timeout.
+esp_err_t net_temp_join(const char *prefix, char *ssid_out, size_t ssid_len, uint32_t timeout_s);
+// Zurück ins Heim-WLAN, vorher `hold_s` Sekunden Kanal halten (Gerät verbindet sich mit dem AP).
+void net_temp_leave(uint32_t hold_s);
+// Entwickler-Überschreibung des Maschinen-WLANs entfernen → wieder "Freikoch-XXXX".
+void net_ap_use_default(void);
 
 // Heim-WLAN und mDNS-Eintrag ergänzen, sobald bekannt (z. B. Firmware-Version).
 void net_mdns_set_txt(const char *key, const char *value);

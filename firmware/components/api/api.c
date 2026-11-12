@@ -148,6 +148,15 @@ static void on_appliance_event(void *arg, esp_event_base_t base, int32_t id, voi
         broadcast("weight", d);
         break;
     }
+    case APPLIANCE_EVENT_ONBOARD: {
+        static const char *names[] = {"searching", "sent", "done", "failed"};
+        appliance_onboard_t st = *(appliance_onboard_t *)data;
+        cJSON *d = cJSON_CreateObject();
+        cJSON_AddStringToObject(d, "state", st <= APPLIANCE_ONBOARD_FAILED ? names[st] : "failed");
+        cJSON_AddNullToObject(d, "reason");
+        broadcast("onboard", d);
+        break;
+    }
     default:
         break;
     }
@@ -210,7 +219,15 @@ static esp_err_t h_info(httpd_req_t *req)
         cJSON_AddStringToObject(k, "name", c->name);
         cJSON_AddNumberToObject(k, "tempMin", c->temp_min);
         cJSON_AddNumberToObject(k, "tempMax", c->temp_max);
-        cJSON_AddNumberToObject(k, "speedMax", c->speed_max);
+        static const char *groups[] = {"off", "stir", "continuous"};
+        cJSON *sp = cJSON_AddArrayToObject(k, "speeds");
+        for (int i = 0; i < c->n_speeds; i++) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddNumberToObject(e, "v", c->speeds[i].v);
+            cJSON_AddStringToObject(e, "label", c->speeds[i].label);
+            cJSON_AddStringToObject(e, "group", groups[c->speeds[i].group]);
+            cJSON_AddItemToArray(sp, e);
+        }
         cJSON_AddNumberToObject(k, "timeMaxS", c->time_max_s);
         cJSON_AddBoolToObject(k, "hasScale", c->has_scale);
         cJSON_AddBoolToObject(k, "remoteStart", c->remote_start);
@@ -245,6 +262,15 @@ static esp_err_t h_stop(httpd_req_t *req)
     if (!authorized(req)) return ESP_OK;
     esp_err_t err = appliance_stop();
     if (err != ESP_OK) return send_error(req, "409 Conflict", "not_connected");
+    return send_json(req, "202 Accepted", cJSON_CreateObject());
+}
+
+static esp_err_t h_onboard(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    esp_err_t err = appliance_onboard();
+    if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "busy");
+    if (err != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(err));
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
 
@@ -294,6 +320,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/state", .method = HTTP_GET, .handler = h_state},
         {.uri = "/api/v1/machine/program", .method = HTTP_POST, .handler = h_program},
         {.uri = "/api/v1/machine/stop", .method = HTTP_POST, .handler = h_stop},
+        {.uri = "/api/v1/machine/onboard", .method = HTTP_POST, .handler = h_onboard},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
         {.uri = "/api/v1/pair", .method = HTTP_POST, .handler = h_pair},
         {.uri = "/api/v1/ws", .method = HTTP_GET, .handler = ws_handler, .is_websocket = true,

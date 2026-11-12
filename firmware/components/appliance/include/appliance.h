@@ -10,13 +10,23 @@
 #include "esp_err.h"
 #include "esp_event.h"
 
+typedef enum { APPLIANCE_SPEED_OFF, APPLIANCE_SPEED_STIR, APPLIANCE_SPEED_CONTINUOUS } appliance_speed_group_t;
+
+// Eine wählbare Stufe: Wert fürs Gerät + Anzeige. Reihenfolge der Liste = Reihenfolge am Gerät.
+typedef struct {
+    uint8_t v;
+    const char *label;
+    appliance_speed_group_t group;
+} appliance_speed_t;
+
 // Was das Gerät kann – die App baut ihre Regler daraus.
 typedef struct {
     const char *model;      // z. B. "kenwood-kcl95"
     const char *name;       // Anzeigename, z. B. "Cooking Chef XL"
     int16_t temp_min;       // °C, kleinste einstellbare Heiztemperatur (0 = Heizung aus)
     int16_t temp_max;       // °C
-    uint8_t speed_max;      // höchste Stufe (0 = aus)
+    const appliance_speed_t *speeds;  // benannte Stufen
+    uint8_t n_speeds;
     uint32_t time_max_s;    // längste Programmzeit
     bool has_scale;         // Waage vorhanden
     bool remote_start;      // Start aus der Ferne möglich (Kenwood: nein, Knopf drücken)
