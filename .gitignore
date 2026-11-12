@@ -1,0 +1,24 @@
+# PlatformIO / ESP-IDF
+firmware/.pio/
+firmware/.vscode/
+firmware/sdkconfig.*
+!firmware/sdkconfig.defaults
+firmware/managed_components/
+firmware/dependencies.lock
+build/
+
+# Geheimnisse / gerätespezifisch
+*.pem
+*.key
+secrets.h
+
+# KiCad
+hardware/**/*-backups/
+hardware/**/*.kicad_prl
+hardware/**/fp-info-cache
+hardware/**/_autosave-*
+hardware/**/*.lck
+
+# Sonstiges
+.DS_Store
+Thumbs.db
