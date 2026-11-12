@@ -26,6 +26,7 @@ static const char *TAG = "provision";
 #define WINDOW_US     (10 * 60 * 1000000LL)  // Bluetooth nach dem Einschalten (Heim-WLAN schon eingerichtet)
 #define POP_LEN       10
 #define MAX_SCAN      15
+#define SCAN_PAGE     5     // Netze pro fk-scan-Antwort (BLE-Grenze 512 Byte)
 #define SRP_USER      "freikoch"
 #define SALT_LEN      16
 
@@ -126,11 +127,8 @@ static volatile bool s_scanning;
 static void start_scan(void)
 {
     if (s_scanning) return;
-    wifi_scan_config_t sc = {
-        .show_hidden = false,
-        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time.active = {.min = 60, .max = 120},  // ms pro Kanal
-    };
+    // Standard-Kanalzeiten: ESP-IDF verlangt sie bei aktivem Bluetooth (Koexistenz).
+    wifi_scan_config_t sc = {.show_hidden = false};
     if (esp_wifi_scan_start(&sc, false) == ESP_OK) s_scanning = true;
 }
 
@@ -172,15 +170,28 @@ static esp_err_t ep_scan(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t
 {
     cJSON *b = inlen > 0 ? cJSON_ParseWithLength((const char *)in, inlen) : NULL;
     bool refresh = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(b, "refresh"));
+    const cJSON *st = cJSON_GetObjectItemCaseSensitive(b, "start");
+    int start = cJSON_IsNumber(st) && st->valuedouble > 0 ? (int)st->valuedouble : 0;
     cJSON_Delete(b);
     if (refresh || !s_scan_json || esp_timer_get_time() - s_scan_time > 20 * 1000000LL) start_scan();
 
+    // Seitenweise: eine BLE-Antwort darf max. 512 Byte haben (inkl. Verschlüsselung).
+    // 5 Netze mit 32-Zeichen-Namen sind ca. 350 Byte. App holt mit "start" die nächste Seite.
+    xSemaphoreTake(s_scan_lock, portMAX_DELAY);
+    cJSON *all = s_scan_json ? cJSON_Parse(s_scan_json) : NULL;
+    xSemaphoreGive(s_scan_lock);
+    int total = all ? cJSON_GetArraySize(all) : 0;
+    cJSON *page = cJSON_CreateArray();
+    for (int i = start; i < total && i < start + SCAN_PAGE; i++) {
+        cJSON_AddItemToArray(page, cJSON_Duplicate(cJSON_GetArrayItem(all, i), true));
+    }
+    cJSON_Delete(all);
+
     cJSON *o = cJSON_CreateObject();
     cJSON_AddBoolToObject(o, "scanning", s_scanning);
-    xSemaphoreTake(s_scan_lock, portMAX_DELAY);
-    cJSON *list = s_scan_json ? cJSON_Parse(s_scan_json) : NULL;
-    xSemaphoreGive(s_scan_lock);
-    cJSON_AddItemToObject(o, "networks", list ? list : cJSON_CreateArray());
+    cJSON_AddNumberToObject(o, "total", total);
+    cJSON_AddNumberToObject(o, "start", start);
+    cJSON_AddItemToObject(o, "networks", page);
     return reply(o, out, outlen);
 }
 
