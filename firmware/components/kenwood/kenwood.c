@@ -348,6 +348,7 @@ static void handle_status(const cJSON *d, const char *raw)
     s_st.remaining_s = rem < 0 ? 0 : rem;
     read_bool(d, "motorOn", &s_st.running);
     read_bool(d, "machineActive", &s_st.active);
+    read_bool(d, "keepWarm", &s_st.keep_warm);
     read_bool(d, "heating", &s_st.heating);
     read_bool(d, "hot", &s_st.hot);
     read_bool(d, "bowlFitted", &s_st.bowl_fitted);
