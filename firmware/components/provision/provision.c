@@ -224,15 +224,25 @@ static esp_err_t ep_token(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_
 
 // ---------------------------------------------------------------------------
 
+// Erst wenn der Dienst wirklich steht (NETWORK_PROV_END), Manager und Bluetooth-Speicher freigeben.
+// network_prov_mgr_deinit() direkt aus dem Timer räumte den noch laufenden NimBLE-Task ab und führte
+// 10 min nach dem Start zum Absturz (Fehlerliste F3, Backtrace in nimble_port_freertos_deinit).
+static void on_prov_event(void *arg, esp_event_base_t base, int32_t id, void *data)
+{
+    if (id != NETWORK_PROV_END || !s_running) return;
+    s_running = false;
+    network_prov_mgr_deinit();  // gibt den Bluetooth-Speicher frei (bis zum nächsten Einschalten)
+    ESP_LOGI(TAG, "Bluetooth-Einrichtung beendet");
+}
+
 static void stop_cb(void *arg)
 {
     if (!net_home_connected()) {  // ohne Heim-WLAN bleibt Bluetooth an
         esp_timer_start_once(s_stop_timer, 60 * 1000000LL);
         return;
     }
-    network_prov_mgr_deinit();  // gibt den Bluetooth-Speicher frei (bis zum nächsten Einschalten)
-    s_running = false;
-    ESP_LOGI(TAG, "Bluetooth-Einrichtung beendet");
+    ESP_LOGI(TAG, "Bluetooth-Einrichtung wird beendet");
+    network_prov_mgr_stop_provisioning();  // asynchron, Ende kommt als NETWORK_PROV_END
 }
 
 esp_err_t provision_start(void)
@@ -257,6 +267,7 @@ esp_err_t provision_start(void)
     const char *eps[] = {"fk-info", "fk-scan", "fk-wifi", "fk-token"};
     for (int i = 0; i < 4; i++) network_prov_mgr_endpoint_create(eps[i]);
 
+    esp_event_handler_register(NETWORK_PROV_EVENT, NETWORK_PROV_END, on_prov_event, NULL);
     err = network_prov_mgr_start_provisioning(NETWORK_PROV_SECURITY_2, (const void *)&s_sec2, s_name, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "start: %s", esp_err_to_name(err));
