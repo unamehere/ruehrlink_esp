@@ -83,10 +83,11 @@ static const appliance_caps_t s_caps = {
 static httpd_handle_t s_server;
 static int s_ws_fd = -1;
 static int64_t s_last_rx_us;
-// HeadLiftInterlockClosed steht nicht im vollen Status der KCL95, sondern kommt (wenn überhaupt) nur als
-// Änderung. Ohne Meldung gilt der Kopf als geschlossen – sonst zeigt die App dauerhaft „Kopf schließen“.
-// Die Maschine verriegelt den Motor bei offenem Kopf ohnehin selbst.
-static appliance_status_t s_st = { .lid_closed = true };
+// HeadLiftInterlockClosed und bowlFitted stehen NICHT im vollen Status der KCL95, sondern kommen nur als
+// Änderung (gemessen 13.11.2026). Ohne Meldung gelten Kopf und Schüssel als in Ordnung – sonst zeigt die App
+// dauerhaft „Schüssel einsetzen und Kopf schließen“ und Programme starten nicht. Die Maschine verriegelt
+// den Motor bei offenem Kopf bzw. fehlender Schüssel ohnehin selbst.
+static appliance_status_t s_st = { .lid_closed = true, .bowl_fitted = true };
 static esp_timer_handle_t s_ping_timer;
 static esp_timer_handle_t s_ack_timer;
 static volatile uint32_t s_connect_count;   // zählt neue Verbindungen (für die Kopplung)
@@ -364,6 +365,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
         if (s_ws_fd >= 0) httpd_sess_trigger_close(s_server, s_ws_fd);
         s_st.connected = false;  // damit set_connected() das Ereignis sicher auslöst
         s_st.lid_closed = true;  // unbekannt bis zur nächsten Meldung (siehe s_st)
+        s_st.bowl_fitted = true;
         s_ws_fd = fd;
         set_connected(true);
     }
