@@ -46,6 +46,7 @@ typedef struct {
     bool connected;         // Gerät mit der Brücke verbunden
     bool running;           // Motor dreht gerade (bei Rührintervallen an/aus im Wechsel!)
     bool active;            // Programm der Maschine läuft (auch Heizen ohne Motor, Rührintervall-Pausen)
+    bool keep_warm;         // Warmhalten nach einem Heizprogramm (KCL95: 30 min, Rührintervall 2)
     bool heating;
     bool hot;
     bool bowl_fitted;
