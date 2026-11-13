@@ -19,8 +19,8 @@ ESP_EVENT_DEFINE_BASE(SEQUENCER_EVENT);
 #define LEAD_S           2                          // nächsten Schritt so viele Sekunden vor Ablauf senden
 #define ACK_WAIT_US      (7 * 1000000LL)            // der Treiber meldet nach 5 s selbst "nicht bestätigt"
 #define MAX_RETRIES      2
+#define RETRY_US         (1000 * 1000LL)           // Abstand zwischen Wiederholungen
 #define RAMP_US          (800 * 1000LL)
-#define RESTART_WAIT_US  (6 * 1000000LL)            // Motor nach Ruhephase wieder an?
 #define PAUSE_MAX_US     (30LL * 60 * 1000000)
 #define FALLBACK_US      (10 * 1000000LL)           // falls die Restzeit der Maschine nicht kommt
 #define MAX_PLAN         16                         // Rampe + Zielwert
@@ -53,9 +53,9 @@ static int s_idx;
 static appliance_status_t s_st;
 static appliance_program_t s_plan[MAX_PLAN];
 static int s_plan_n, s_plan_pos, s_retries;
-static bool s_await_ack, s_need_start, s_seen_counting, s_restart_pending;
+static bool s_await_ack, s_need_start, s_seen_counting;
 static int64_t s_ack_deadline, s_next_send_at, s_step_started, s_elapsed_us, s_last_tick, s_paused_since,
-    s_restart_deadline, s_last_pub;
+    s_last_pub;
 static sequencer_state_t s_state = SEQUENCER_IDLE;
 static sequencer_reason_t s_reason = SEQUENCER_REASON_NONE;
 
@@ -102,7 +102,8 @@ static bool too_fast_when_hot(const appliance_caps_t *c, uint8_t v)
 
 static bool is_timer_step(const sequencer_step_t *s) { return s->speed == 0; }
 
-static bool started(const appliance_status_t *st) { return st->running || st->heating; }
+// Läuft das Programm der Maschine? machineActive zählt – motorOn wechselt bei Rührintervallen (F11).
+static bool started(const appliance_status_t *st) { return st->active || st->running || st->heating; }
 
 static void publish(int64_t now)
 {
@@ -156,7 +157,6 @@ static void clear_plan(void)
 static void abort_seq(sequencer_reason_t r, int64_t now)
 {
     clear_plan();
-    s_restart_pending = false;
     if (r != SEQUENCER_REASON_DISCONNECTED) appliance_stop();
     set_state(SEQUENCER_ABORTED, r, now);
 }
@@ -217,8 +217,8 @@ static void on_ack(bool ok, int64_t now)
     if (!ok) {
         if (s_retries < MAX_RETRIES) {
             s_retries++;
-            ESP_LOGW(TAG, "keine Bestaetigung – Wiederholung %d", s_retries);
-            s_next_send_at = now;
+            ESP_LOGW(TAG, "keine Bestaetigung – Wiederholung %d in 1 s", s_retries);
+            s_next_send_at = now + RETRY_US;
         } else {
             abort_seq(SEQUENCER_REASON_NO_ACK, now);
         }
@@ -243,9 +243,9 @@ static void begin_step(int idx, int64_t now)
     s_idx = idx;
     s_elapsed_us = 0;
     const sequencer_step_t *step = &s_job.steps[idx];
-    // nach einer Ruhephase muss der Motor wieder anlaufen – ohne Knopfdruck? (an der Maschine zu testen)
-    s_restart_pending = prev && is_timer_step(prev) && !is_timer_step(step) && !s_need_start;
-    s_restart_deadline = now + RESTART_WAIT_US;
+    // Nach einer Ruhephase (Motor aus) startet die KCL95 nicht von selbst – gemessen 13.11. (F10):
+    // gleich nach dem Senden „Knopf drücken“ melden statt abzuwarten.
+    if (prev && is_timer_step(prev) && !is_timer_step(step)) s_need_start = true;
     plan_step(step, step->time_s, true, now);
     publish(now);
 }
@@ -265,24 +265,14 @@ static void step_end(int64_t now)
 static void pause_seq(sequencer_reason_t r, int64_t now)
 {
     clear_plan();
-    s_restart_pending = false;
     s_paused_since = now;
     set_state(SEQUENCER_PAUSED, r, now);
 }
 
-// Nach Schüssel/Kopf: aktuellen Schritt mit der Restzeit erneut senden, dann auf Knopfdruck warten.
+// Nach Schüssel/Kopf: Die KCL95 hat ihr Programm selbst angehalten und behält Restzeit und Stufe; in diesem
+// Zustand lehnt sie neue Werte ab (gemessen 13.11., F12). Also nichts senden – nur auf den Knopfdruck warten.
 static void resume_after_safety(int64_t now)
 {
-    const sequencer_step_t *step = &s_job.steps[s_idx];
-    uint32_t left;
-    if (is_timer_step(step)) {
-        int64_t l = (int64_t)step->time_s * 1000000 - s_elapsed_us;
-        left = l > 0 ? (uint32_t)(l / 1000000) + 1 : 1;
-    } else {
-        left = s_st.remaining_s > 0 ? s_st.remaining_s : step->time_s;
-    }
-    s_need_start = true;
-    plan_step(step, left, false, now);
     set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now);
 }
 
@@ -335,10 +325,12 @@ static void on_status(const appliance_status_t *st, int64_t now)
     }
     // RUNNING: am Gerät angehalten? (nicht kurz vor Schrittende und nicht nach einer Ruhephase)
     const sequencer_step_t *step = &s_job.steps[s_idx];
-    if (!is_timer_step(step) && !s_restart_pending && s_plan_n == 0 && prev.running && !st->running &&
-        st->remaining_s > LEAD_S) {
+    if (!is_timer_step(step) && s_plan_n == 0 && started(&prev) && !started(st) && st->remaining_s > LEAD_S) {
         pause_seq(SEQUENCER_REASON_MACHINE_PAUSED, now);
+        return;
     }
+    // Restzeit läuft: Stand sekündlich an die App (Ring füllt sich, F9)
+    if (!is_timer_step(step) && st->remaining_s != prev.remaining_s) publish(now);
 }
 
 static void tick(int64_t now)
@@ -367,21 +359,10 @@ static void tick(int64_t now)
         else if (now - s_last_pub >= 1000000) publish(now);
         return;
     }
-    if (s_restart_pending) {
-        if (s_st.running) {
-            s_restart_pending = false;
-            s_step_started = now;
-        } else if (now > s_restart_deadline) {
-            s_restart_pending = false;
-            s_need_start = false;
-            set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now);
-        }
-        return;
-    }
     if (s_st.remaining_s > LEAD_S) s_seen_counting = true;
     bool overdue = now - s_step_started > (int64_t)step->time_s * 1000000 + FALLBACK_US;
     if (last) {
-        if ((s_seen_counting && !s_st.running && s_st.remaining_s == 0) || overdue) finish(now);
+        if ((s_seen_counting && !started(&s_st) && s_st.remaining_s == 0) || overdue) finish(now);
     } else if ((s_seen_counting && s_st.remaining_s <= LEAD_S) || overdue) {
         step_end(now);
     }

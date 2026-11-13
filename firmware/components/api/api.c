@@ -108,6 +108,7 @@ static cJSON *status_json(void)
     cJSON *d = cJSON_CreateObject();
     cJSON_AddBoolToObject(d, "connected", st.connected);
     cJSON_AddBoolToObject(d, "running", st.running);
+    cJSON_AddBoolToObject(d, "active", st.active);
     cJSON_AddBoolToObject(d, "heating", st.heating);
     cJSON_AddBoolToObject(d, "hot", st.hot);
     cJSON_AddBoolToObject(d, "bowlFitted", st.bowl_fitted);

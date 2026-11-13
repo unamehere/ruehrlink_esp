@@ -134,14 +134,15 @@ ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden 
 Brücke → App:
 
 ```json
-{"t":"status","d":{"connected":true,"running":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
+{"t":"status","d":{"connected":true,"running":false,"active":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
 {"t":"weight","d":{"g":251.4}}
 {"t":"seq","d":{"programId":"dinkelteig","name":"Dinkelteig kneten","step":2,"of":4,"label":"Kneten","state":"running","reason":null,"stepRemainingS":240}}
 {"t":"ack","d":{"cmd":"setProgramme","ok":true}}
 {"t":"recipes","d":{"rev":42}}
 ```
 
-- `status` ist **geräteneutral**: `running` (Motor/Programm läuft), `lidClosed` (Kopf/Deckel verriegelt),
+- `status` ist **geräteneutral**: `running` (Motor dreht – bei Rührintervallen im Wechsel an/aus), `active`
+  (Programm der Maschine läuft, auch Heizen ohne Motor und Intervallpausen; für „läuft das Programm?“), `lidClosed` (Kopf/Deckel verriegelt),
   `bowlTemp`/`tempSet` in °C, `speedSet`, `remainingS` in Sekunden. Gerätespezifische Namen bleiben im Treiber.
 - `seq` kommt bei jeder Änderung von Zustand/Schritt, bei Schritten ohne Motor zusätzlich 1×/s.
   `step` zählt ab 1 (`0` = kein Programm). `programId` ist `null` bei Inline-Programmen.
