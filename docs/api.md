@@ -38,8 +38,9 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
-| POST | `/api/v1/sequence/start` | Programm starten `{"programId":"…"}` oder inline `{"steps":[…]}` |
-| POST | `/api/v1/sequence/abort` | laufendes Programm abbrechen |
+| POST | `/api/v1/sequence/start` | Programm starten `{"programId":"…"}` oder inline `{"name":"…","steps":[…]}` |
+| POST | `/api/v1/sequence/abort` | laufendes Programm abbrechen (stoppt auch die Maschine) |
+| GET | `/api/v1/sequence` | Zustand des Programms (wie WS `seq`), z. B. nach dem Wiederverbinden der App |
 | GET | `/api/v1/recipes?since=<rev>` | Änderungen seit Revision: `{"rev":n,"changed":[…],"deleted":[ids]}` |
 | GET | `/api/v1/recipes/{id}` | ein Rezept |
 | PUT | `/api/v1/recipes/{id}` | anlegen/ändern, Header `If-Match: <rev>` gegen Überschreiben |
@@ -78,6 +79,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
         {"v": 12, "label": "max", "group": "continuous"}
       ],
       "timeMaxS": 28800,
+      "hotTemp": 60, "hotSpeedMax": 7,
       "hasScale": true,
       "remoteStart": false
     }
@@ -105,8 +107,24 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   Setup-WLAN der Maschine und hält danach den Kanal. Die App zeigt den Schritt an und verbindet danach neu;
   Ergebnis dann über `GET /info` (`appliance.connected`). Die WS-Meldungen `searching`/`sent` gehen evtl. verloren.
 
+- `POST /api/v1/sequence/start` – Body entweder `{"programId":"eischnee"}` (Datei `/data/programs/<id>.json`)
+  oder inline `{"name":"Pizzateig","steps":[{"speed":7,"time":60,"temperature":0,"label":"Unterrühren"}, …]}`
+  (max. 20 Schritte, Summe ≤ `timeMaxS`). Antwort `202` mit dem Zustand (wie `GET /sequence`).
+  Die Brücke sendet Schritt 1; **gestartet wird am Gerät** (Knopf drücken, Zustand `waiting_start`), danach
+  laufen alle Schritte ohne weiteren Knopfdruck (Werte werden live nachgeschoben).
+  Fehler: `400 {"error":"empty|too_many|range|hot_speed|total_time|first_step","step":<index ab 0>}`,
+  `404 {"error":"program"}`, `409 {"error":"not_connected|busy|not_ready"}` (`not_ready` = Schüssel fehlt
+  oder Kopf offen).
+- `POST /api/v1/sequence/abort` – Antwort `202`; `409 {"error":"idle"}`, wenn nichts läuft.
+- Während ein Programm läuft, antworten `POST /machine/program` mit `409 {"error":"busy"}`;
+  `POST /machine/stop` bricht das Programm ab (wie `/sequence/abort`).
+- `GET /api/v1/programs` – `{"programs":[{"id":"eischnee","name":"Eischnee","steps":[…]}]}` aus
+  `/data/programs/*.json`. Programme anlegen geht vorerst nur inline über `/sequence/start`.
+
 `speeds` = wählbare Stufen in der Reihenfolge am Gerät (`group`: off/stir/continuous); gesendet wird `speed = v`,
 der Status meldet `speedSet = v`. Unbekannter Wert → App zeigt die Zahl.
+`hotTemp`/`hotSpeedMax`: Ab `hotTemp` °C (Soll- oder Ist-Temperatur) sind in Programmen nur Dauerstufen bis
+einschließlich `hotSpeedMax` erlaubt (Rührintervalle immer) – die App graut höhere Stufen aus.
 
 **Die App baut Regler und Grenzen aus `caps`** – nie fest einprogrammiert. So funktioniert
 ein weiteres Gerät ohne App-Update. Werte der KCL95 sind vorläufig und werden an der Maschine geprüft.
@@ -118,13 +136,18 @@ Brücke → App:
 ```json
 {"t":"status","d":{"connected":true,"running":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
 {"t":"weight","d":{"g":251.4}}
-{"t":"seq","d":{"programId":"dinkelteig","step":2,"of":4,"state":"running|waiting_start|paused|done|aborted","reason":null}}
+{"t":"seq","d":{"programId":"dinkelteig","name":"Dinkelteig kneten","step":2,"of":4,"label":"Kneten","state":"running","reason":null,"stepRemainingS":240}}
 {"t":"ack","d":{"cmd":"setProgramme","ok":true}}
 {"t":"recipes","d":{"rev":42}}
 ```
 
 - `status` ist **geräteneutral**: `running` (Motor/Programm läuft), `lidClosed` (Kopf/Deckel verriegelt),
   `bowlTemp`/`tempSet` in °C, `speedSet`, `remainingS` in Sekunden. Gerätespezifische Namen bleiben im Treiber.
+- `seq` kommt bei jeder Änderung von Zustand/Schritt, bei Schritten ohne Motor zusätzlich 1×/s.
+  `step` zählt ab 1 (`0` = kein Programm). `programId` ist `null` bei Inline-Programmen.
+  `state`: `idle` · `waiting_start` (Knopf an der Maschine drücken) · `running` · `paused` · `done` · `aborted`.
+  `reason`: `null` · `press_start` · `lid_open` · `bowl_missing` · `machine_paused` (am Gerät angehalten) ·
+  `disconnected` · `no_ack` (Maschine bestätigt nicht) · `user` (Abbruch per App) · `timeout` (30 min pausiert).
 - `weight` max. 10 Nachrichten/s.
 - `recipes` signalisiert, dass sich die Bibliothek geändert hat → App holt `GET /recipes?since=`.
 

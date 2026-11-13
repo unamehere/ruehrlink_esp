@@ -19,6 +19,7 @@
 #include "led.h"
 #include "net.h"
 #include "provision.h"
+#include "sequencer.h"
 #include "storage.h"
 
 static const char *TAG = "freikoch";
@@ -65,6 +66,7 @@ void app_main(void)
 
     net_start();
     appliance_register(kenwood_driver());
+    sequencer_init();
     api_start();
     provision_start();
 
