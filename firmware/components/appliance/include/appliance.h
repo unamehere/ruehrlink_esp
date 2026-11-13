@@ -44,7 +44,8 @@ typedef struct {
 // Gemeinsamer Status aller Geräte. Gerätespezifisches bleibt im Treiber.
 typedef struct {
     bool connected;         // Gerät mit der Brücke verbunden
-    bool running;           // Motor/Programm läuft
+    bool running;           // Motor dreht gerade (bei Rührintervallen an/aus im Wechsel!)
+    bool active;            // Programm der Maschine läuft (auch Heizen ohne Motor, Rührintervall-Pausen)
     bool heating;
     bool hot;
     bool bowl_fitted;
