@@ -28,6 +28,8 @@ typedef struct {
     const appliance_speed_t *speeds;  // benannte Stufen
     uint8_t n_speeds;
     uint32_t time_max_s;    // längste Programmzeit
+    int16_t hot_temp;       // °C: ab hier gilt der Inhalt als heiß (Soll- oder Ist-Temperatur)
+    uint8_t hot_speed_max;  // höchste erlaubte Dauerstufe (Wert v) bei heißem Inhalt
     bool has_scale;         // Waage vorhanden
     bool remote_start;      // Start aus der Ferne möglich (Kenwood: nein, Knopf drücken)
 } appliance_caps_t;

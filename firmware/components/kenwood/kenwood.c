@@ -73,6 +73,8 @@ static const appliance_caps_t s_caps = {
     .speeds = s_speeds,
     .n_speeds = sizeof(s_speeds) / sizeof(s_speeds[0]),
     .time_max_s = 8 * 3600,
+    .hot_temp = 60,         // vorläufig: Grenze und Stufe an der Maschine/Anleitung prüfen
+    .hot_speed_max = 7,     // Dauerstufe "2"
     .has_scale = true,
     .remote_start = false,
 };
