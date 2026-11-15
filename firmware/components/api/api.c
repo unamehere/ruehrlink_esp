@@ -21,6 +21,7 @@
 #include "net.h"
 #include "sequencer.h"
 #include "storage.h"
+#include "update.h"
 
 static const char *TAG = "api";
 
@@ -54,7 +55,10 @@ static esp_err_t send_error(httpd_req_t *req, const char *status, const char *ms
 static bool authorized(httpd_req_t *req)
 {
     char hdr[48];
-    if (httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) == ESP_OK && auth_check(hdr)) return true;
+    if (httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) == ESP_OK && auth_check(hdr)) {
+        update_confirm();  // erste erfolgreiche Anfrage nach einem Update → neue Firmware ist gut
+        return true;
+    }
     send_error(req, "401 Unauthorized", "token");
     return false;
 }
@@ -445,6 +449,66 @@ static esp_err_t h_onboard(httpd_req_t *req)
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
 
+// --- Firmware-Update ----------------------------------------------------------
+
+static bool hex_to_bytes(const char *hex, uint8_t *out, size_t n)
+{
+    if (strlen(hex) != n * 2) return false;
+    for (size_t i = 0; i < n; i++) {
+        unsigned v;
+        if (!isxdigit((unsigned char)hex[2 * i]) || !isxdigit((unsigned char)hex[2 * i + 1]) ||
+            sscanf(hex + 2 * i, "%2x", &v) != 1) {
+            return false;
+        }
+        out[i] = (uint8_t)v;
+    }
+    return true;
+}
+
+// Body = Firmware-Image (application/octet-stream), Header X-Sha256 + X-Signature (hex), siehe docs/updates.md.
+// Blockiert den Server für die Dauer des Uploads (ca. 30 s) – Fortschritt zählt die App selbst.
+static esp_err_t h_ota(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char hex[2 * UPDATE_SIG_LEN + 1];
+    uint8_t sha[32], sig[UPDATE_SIG_LEN];
+    if (httpd_req_get_hdr_value_str(req, "X-Sha256", hex, sizeof(hex)) != ESP_OK || !hex_to_bytes(hex, sha, 32) ||
+        httpd_req_get_hdr_value_str(req, "X-Signature", hex, sizeof(hex)) != ESP_OK ||
+        !hex_to_bytes(hex, sig, UPDATE_SIG_LEN)) {
+        return send_error(req, "400 Bad Request", "header");
+    }
+    appliance_status_t st;
+    appliance_get_status(&st);
+    if (sequencer_active() || st.active) return send_error(req, "409 Conflict", "busy");
+
+    esp_err_t err = update_begin(req->content_len);
+    if (err == ESP_ERR_INVALID_SIZE) return send_error(req, "413 Payload Too Large", "size");
+    if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "busy");
+    if (err != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(err));
+
+    const size_t chunk = 4096;
+    char *buf = malloc(chunk);
+    size_t left = req->content_len;
+    int timeouts = 0;
+    while (buf && left > 0) {
+        int n = httpd_req_recv(req, buf, left < chunk ? left : chunk);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 5) continue;
+        if (n <= 0) break;
+        timeouts = 0;
+        if (update_write(buf, n) != ESP_OK) break;
+        left -= n;
+    }
+    free(buf);
+    if (left > 0) {
+        update_abort();
+        return send_error(req, "400 Bad Request", "upload");
+    }
+    const char *code;
+    if (update_finish(sha, sig, &code) != ESP_OK) return send_error(req, "400 Bad Request", code);
+    update_restart_later(1000);
+    return send_json(req, "202 Accepted", cJSON_CreateObject());
+}
+
 static esp_err_t h_reset(httpd_req_t *req)
 {
     if (!authorized(req)) return ESP_OK;
@@ -515,7 +579,7 @@ esp_err_t api_start(void)
     cfg.max_open_sockets = MAX_CLIENTS - 1;
     cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 16;
-    cfg.stack_size = 6144;
+    cfg.stack_size = 8192;  // Signaturprüfung beim Update
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP-Server: %s", esp_err_to_name(err));
@@ -533,6 +597,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/programs", .method = HTTP_GET, .handler = h_programs},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
         {.uri = "/api/v1/reset", .method = HTTP_POST, .handler = h_reset},
+        {.uri = "/api/v1/ota", .method = HTTP_POST, .handler = h_ota},
         {.uri = "/api/v1/pair", .method = HTTP_POST, .handler = h_pair},
         {.uri = "/api/v1/pair/approve", .method = HTTP_POST, .handler = h_pair_approve},
         {.uri = "/api/v1/ws", .method = HTTP_GET, .handler = ws_handler, .is_websocket = true,
