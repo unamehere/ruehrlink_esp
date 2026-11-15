@@ -31,7 +31,7 @@ Typen: `feat` (Funktion) · `fix` (Fehler) · `docs` · `style` (Formatierung) �
 ## Release
 
 1. Testplan an der echten Maschine durchlaufen (`freikoch_esp/docs/testplan.md`), Ergebnis eintragen.
-2. `develop` → `main` mergen, Tag `vX.Y.Z` setzen (App-Version = Firmware-Version, sobald OTA steht).
+2. `develop` → `main` mergen, Tag `vX.Y.Z` setzen. App und Firmware teilen `MAJOR.MINOR`, der Patch zählt je Repo (siehe docs/updates.md).
 3. Fehler aus Tests kommen in die Fehlerliste (`Freikoch/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
 Keine Zugangsdaten (WLAN, Tokens, Passwörter) in Dateien im Repo – auch nicht in ignorierten.
