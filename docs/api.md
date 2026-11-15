@@ -126,6 +126,42 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 - `GET /api/v1/programs` – `{"programs":[{"id":"eischnee","name":"Eischnee","steps":[…]}]}` aus
   `/data/programs/*.json`. Programme anlegen geht vorerst nur inline über `/sequence/start`.
 
+### Rezepte und Fotos (Stand 15.11.)
+
+Die Brücke ist die Quelle der Wahrheit, jede App hält eine Kopie und gleicht sie über Revisionen ab.
+Jede Änderung (Anlegen, Ändern, Löschen) bekommt die nächste **Bibliotheks-Revision** `rev` (1, 2, 3 …);
+das gespeicherte Rezept trägt sie als eigenes `rev`.
+
+- `GET /api/v1/recipes?since=<rev>` – `{"rev":<aktuell>,"changed":[<ganze Rezepte mit rev > since>],"deleted":["<id>",…]}`.
+  Ohne `since` (bzw. `0`) kommen alle Rezepte und keine Löschungen. Ungeordnet. Die Antwort wird gestreamt
+  (`Transfer-Encoding: chunked`) und kann groß werden – die App liest sie ganz und merkt sich danach `rev`.
+  Ist `rev` der Antwort **kleiner** als der Stand der App (andere Brücke, Speicher getauscht), holt die App alles neu (`since=0`).
+- `GET /api/v1/recipes/{id}` – ein Rezept, Header `ETag: "<rev>"`. `404 {"error":"recipe"}` bzw. `{"error":"deleted"}`.
+- `PUT /api/v1/recipes/{id}` – Body = Rezept (JSON, **max. 16 KB**), Header `If-Match: <rev>`:
+  `0` = neu (darf es noch nicht geben; ein gelöschtes Rezept zählt als nicht vorhanden),
+  `n` = ändern, nur wenn die Brücke noch Revision `n` hat; ohne Header wird ohne Prüfung überschrieben
+  (nur für „trotzdem speichern“ gedacht – die App schickt immer `If-Match`).
+  `id` = Kleinbuchstaben, Ziffern, `-`, max. 40 Zeichen (die App nimmt eine UUID v4).
+  Die Brücke setzt `v`, `id`, `rev` und `updated` selbst (`updated` aus ihrer Uhr, ohne gestellte Uhr wird das der App
+  übernommen) und behält unbekannte Felder. Antwort `200 {"id","rev","updated"}`, danach WS `recipes`.
+  Fehler: `412 {"error":"rev","rev":<aktuell, 0 = gibt es nicht>,"deleted":bool}` (inzwischen geändert/gelöscht),
+  `400 {"error":"id|if_match|body|json|title|servings|photo|tags|ingredients|steps"}`, `413 {"error":"size"}`,
+  `503 {"error":"memory"}` (Brücke hat gerade zu wenig RAM, später noch einmal), `500 {"error":"storage"}`.
+- `DELETE /api/v1/recipes/{id}` – `If-Match` wie oben (optional). Antwort `200 {"id","rev","deleted":true}`, WS `recipes`;
+  `404`, `412` wie oben. Gelöschte Rezepte bleiben als Löschvermerk (Tombstone) stehen, damit andere Apps sie über
+  `since` erfahren. (Aufräumen alter Tombstones: später.)
+- `PUT /api/v1/media/{sha256}` – Body = Foto als **WebP** (`Content-Type: image/webp`, mit `Content-Length`, **max. 1 MB**),
+  `{sha256}` = SHA-256 des Inhalts, 64 Hex-Zeichen klein. Die Brücke schreibt in Blöcken direkt auf den Speicher,
+  prüft Größe, WebP-Kennung (`RIFF…WEBP`) und Prüfsumme und macht das Foto erst dann sichtbar. Antwort
+  `201 {"sha256"}`, `200` wenn es schon da war. Fehler: `400 {"error":"sha256|format|size|upload"}`, `413 {"error":"size"}`,
+  `507 {"error":"full"}` (Speicher fast voll), `500 {"error":"storage"}`. Während des Uploads (ca. 1–3 s) wartet die API.
+  Reihenfolge in der App: erst das Foto hochladen, dann das Rezept speichern, das darauf verweist.
+- `GET /api/v1/media/{sha256}` – das Foto (`image/webp`), unveränderlich: die App speichert es dauerhaft zwischen.
+  `404 {"error":"media"}`. Nicht mehr benutzte Fotos werden vorerst nicht gelöscht.
+
+Begrenzungen wegen des knappen RAM (ESP32-C6 ohne PSRAM): Ein Rezept wird ganz gelesen und geprüft (≤ 16 KB +
+cJSON-Baum, sofort wieder freigegeben), alles andere wird gestreamt (Blöcke von 1–2 KB).
+
 `speeds` = wählbare Stufen in der Reihenfolge am Gerät (`group`: off/stir/continuous); gesendet wird `speed = v`,
 der Status meldet `speedSet = v`. Unbekannter Wert → App zeigt die Zahl.
 `hotTemp`/`hotSpeedMax`: Ab `hotTemp` °C (Soll- oder Ist-Temperatur) sind in Programmen nur Dauerstufen bis
@@ -167,6 +203,7 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
 
 ```json
 {
+  "v": 1,
   "id": "uuid",
   "rev": 7,
   "updated": "2026-11-12T10:00:00Z",
@@ -182,6 +219,11 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
   ]
 }
 ```
+
+Pflicht ist nur `title` (1–200 Zeichen). `servings` 1–1000, `photo` = SHA-256 eines Fotos oder `null`.
+Ein Schritt hat `text` und optional **entweder** `weigh` (Zielmenge, `unit` meist `g`; skaliert die App mit den Portionen)
+**oder** `machine` (`programId` eines Programms der Brücke **oder** Einzelwerte wie bei `/machine/program`).
+Mengen in `ingredients` beziehen sich auf `servings`. `amount` 0 = ohne Mengenangabe („Salz“).
 
 ### Programm
 
