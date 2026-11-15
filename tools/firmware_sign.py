@@ -102,8 +102,8 @@ def cmd_sign(a):
     sig = sign_image(key, image)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    name = f"bruecke-{version}.bin"
-    for old in out.glob("bruecke-*.bin"):  # die App trägt genau eine Firmware
+    name = f"ruehrlink-{version}.bin"
+    for old in [*out.glob("ruehrlink-*.bin"), *out.glob("bruecke-*.bin")]:  # die App trägt genau eine Firmware
         old.unlink()
     (out / name).write_bytes(image)
     manifest = {
