@@ -36,7 +36,7 @@ static const char *TAG = "waage";
 
 #define PORT          443
 #define FRAME_MAX     512                    // längere Nachrichten werden verworfen
-#define SILENCE_US    (10 * 1000000LL)       // so lange nichts gehört → Verbindung gilt als tot
+#define SILENCE_US    (2 * 1000000LL)        // so lange nichts gehört → tot (die Maschine sendet ~20/s)
 #define RETRY_MS      3000
 #define RCV_TIMEOUT_S 1                      // Lesen kehrt spätestens so oft zurück (Lease prüfen)
 #define NVS_NS        "waage"
@@ -51,6 +51,17 @@ static bool s_running;  // Task läuft (geschützt durch s_mux)
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static bool needed(void) { return esp_timer_get_time() < s_until_us; }
+
+// Der TLS-Handshake ist an der Maschine langsam (sie rechnet selbst). Gemessen 15.11.: mit allen
+// Kurven ~4,6–5,2 s (die Maschine wählt eine größere), nur P-256 ~2,4–2,7 s; X25519 lehnt sie ab.
+// Sitzungs-Wiederaufnahme beherrscht sie (Stand fw dieser KCL95) nicht – bleibt drin, schadet nicht.
+#ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+static esp_tls_client_session_t *s_session;
+#endif
+static bool s_cert_checked;
+static bool s_p256_failed;  // P-256 einmal abgelehnt → ab dann die Standardliste
+static const uint16_t s_p256[] = {MBEDTLS_SSL_IANA_TLS_GROUP_SECP256R1, MBEDTLS_SSL_IANA_TLS_GROUP_NONE};
+static bool s_try_p256;  // verify_cb lief → voller Handshake, nicht wiederaufgenommen
 
 // ---------------------------------------------------------------------------
 // Zertifikat (Trust on first use)
@@ -96,6 +107,7 @@ static void store_pin(const uint8_t *der, size_t len)
 
 static int verify_cb(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
 {
+    s_cert_checked = true;
     if (depth > 0) {  // Zwischenzertifikate egal, es zählt nur das der Maschine
         *flags = 0;
         return 0;
@@ -125,6 +137,7 @@ static esp_err_t tls_attach(void *conf)
     mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(conf, &s_chain, NULL);
     mbedtls_ssl_conf_verify(conf, verify_cb, NULL);
+    if (s_try_p256) mbedtls_ssl_conf_groups(conf, s_p256);
     return ESP_OK;
 }
 
@@ -245,13 +258,34 @@ static void session(uint32_t ip)
         .skip_common_name = true,
         .timeout_ms = 5000,
     };
+#ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+    cfg.client_session = s_session;
+#endif
     esp_tls_t *tls = esp_tls_init();
     if (!tls) return;
+    int64_t t0 = esp_timer_get_time();
+    s_try_p256 = !s_p256_failed;
+    s_cert_checked = false;
     if (esp_tls_conn_new_sync(host, strlen(host), PORT, &cfg, tls) != 1) {
         ESP_LOGW(TAG, "keine Verbindung zu %s:%d", host, PORT);
+        if (s_try_p256) {
+            s_p256_failed = true;  // nächster Versuch mit allen Kurven
+            ESP_LOGW(TAG, "P-256 abgelehnt – künftig alle Kurven");
+        }
         esp_tls_conn_destroy(tls);
+#ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+        esp_tls_free_client_session(s_session);  // evtl. abgelaufen – nächster Versuch voll
+        s_session = NULL;
+#endif
         return;
     }
+    int64_t t_tls = esp_timer_get_time();
+#ifdef CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS
+    if (s_cert_checked) {  // neue Sitzung: für das nächste Mal merken
+        esp_tls_free_client_session(s_session);
+        s_session = esp_tls_get_client_session(tls);
+    }
+#endif
     int fd = -1;
     if (esp_tls_get_conn_sockfd(tls, &fd) == ESP_OK && fd >= 0) {
         struct timeval tv = {.tv_sec = RCV_TIMEOUT_S};
@@ -261,7 +295,8 @@ static void session(uint32_t ip)
         esp_tls_conn_destroy(tls);
         return;
     }
-    ESP_LOGI(TAG, "verbunden mit %s", host);
+    ESP_LOGI(TAG, "verbunden mit %s (TLS %lld ms%s, WebSocket %lld ms)", host, (t_tls - t0) / 1000,
+             s_cert_checked ? "" : ", Sitzung wiederaufgenommen", (esp_timer_get_time() - t_tls) / 1000);
 
     uint8_t *buf = malloc(FRAME_MAX + 1);
     int64_t last = esp_timer_get_time();
@@ -316,6 +351,8 @@ static void session(uint32_t ip)
             break;
         }
     }
+    // Mitten im Strom still oder abgebrochen, obwohl noch gebraucht: vielleicht ist die Maschine aus.
+    if (needed()) kenwood_check_alive();
     if (buf) send_frame(tls, 0x8, NULL, 0);  // höflich schließen (Fehler egal)
     free(buf);
     esp_tls_conn_destroy(tls);

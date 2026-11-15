@@ -38,6 +38,7 @@ CONFIG_LWIP_MAX_SOCKETS=16
 
 # TLS-Puffer nur bei Bedarf anlegen und nach dem Handshake verkleinern (spart pro Verbindung ~15-20 KB,
 # wichtig fuer Chips ohne PSRAM wie den ESP32-C6)
+CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y

@@ -55,7 +55,7 @@ void appliance_report_ack(bool ok)
 // Die Maschine liefert ~20 Werte/s – an die Apps geht höchstens alle 100 ms ein Wert und nur bei
 // Änderung ≥ 0,5 g (spätestens jede Sekunde einer, damit die App weiß, dass die Waage lebt).
 
-#define WEIGHT_MIN_US   (100 * 1000LL)
+#define WEIGHT_MIN_US   (50 * 1000LL)
 #define WEIGHT_ALIVE_US (1000 * 1000LL)
 #define WEIGHT_STEP_G   0.5f
 
