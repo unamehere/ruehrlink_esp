@@ -24,6 +24,10 @@ ESP_EVENT_DEFINE_BASE(SEQUENCER_EVENT);
 #define PAUSE_MAX_US     (30LL * 60 * 1000000)
 #define FALLBACK_US      (10 * 1000000LL)           // falls die Restzeit der Maschine nicht kommt
 #define MAX_PLAN         16                         // Rampe + Zielwert
+// 60-°C-Logik (B1): Ab hot_temp drosselt die KCL95 die Stufe selbst, wird der Inhalt wieder kühler, geht sie
+// aber nicht von selbst hoch (Anleitung Z. 3839–3843). Die Brücke sendet die gewünschte Stufe dann neu.
+#define HOT_HYST_C       2                          // vorläufig, an der Maschine prüfen: so weit unter hot_temp
+#define HOT_MIN_LEFT_S   (LEAD_S + 3)               // kurz vor Schrittende nicht mehr neu senden
 
 typedef struct {
     char program_id[32];
@@ -54,6 +58,7 @@ static appliance_status_t s_st;
 static appliance_program_t s_plan[MAX_PLAN];
 static int s_plan_n, s_plan_pos, s_retries;
 static bool s_await_ack, s_need_start, s_seen_counting;
+static bool s_hot_limited;          // Stufe des laufenden Schritts ist wegen heißem Inhalt gedrosselt (B1)
 static int64_t s_ack_deadline, s_next_send_at, s_step_started, s_elapsed_us, s_last_tick, s_paused_since,
     s_last_pub;
 static sequencer_state_t s_state = SEQUENCER_IDLE;
@@ -169,6 +174,7 @@ static void plan_step(const sequencer_step_t *step, uint32_t time_s, bool ramp, 
     if (s_st.bowl_temp >= c->hot_temp && too_fast_when_hot(c, target.speed)) {
         ESP_LOGW(TAG, "Inhalt heiss (%d C): Stufe %u auf %u begrenzt", s_st.bowl_temp, target.speed, c->hot_speed_max);
         target.speed = c->hot_speed_max;
+        s_hot_limited = true;
     }
     clear_plan();
     if (ramp && s_st.running && continuous(c, s_st.speed_set) && continuous(c, target.speed)) {
@@ -242,6 +248,7 @@ static void begin_step(int idx, int64_t now)
     const sequencer_step_t *prev = idx > 0 ? &s_job.steps[idx - 1] : NULL;
     s_idx = idx;
     s_elapsed_us = 0;
+    s_hot_limited = false;
     const sequencer_step_t *step = &s_job.steps[idx];
     // Nach einer Ruhephase (Motor aus) startet die KCL95 nicht von selbst – gemessen 13.11. (F10):
     // gleich nach dem Senden „Knopf drücken“ melden statt abzuwarten.
@@ -329,6 +336,12 @@ static void on_status(const appliance_status_t *st, int64_t now)
         pause_seq(SEQUENCER_REASON_MACHINE_PAUSED, now);
         return;
     }
+    // Inhalt heiß geworden: die Maschine drosselt eine schnellere Dauerstufe selbst (B1)
+    const appliance_caps_t *c = appliance_caps();
+    if (c && !is_timer_step(step) && st->bowl_temp >= c->hot_temp && too_fast_when_hot(c, step->speed)) {
+        if (!s_hot_limited) ESP_LOGI(TAG, "Inhalt heiss (%d C): Maschine drosselt Stufe %u", st->bowl_temp, step->speed);
+        s_hot_limited = true;
+    }
     // Restzeit läuft: Stand sekündlich an die App (Ring füllt sich, F9)
     if (!is_timer_step(step) && st->remaining_s != prev.remaining_s) publish(now);
 }
@@ -360,6 +373,16 @@ static void tick(int64_t now)
         return;
     }
     if (s_st.remaining_s > LEAD_S) s_seen_counting = true;
+    // Wieder unter der Grenze: gewünschte Stufe für die Restzeit neu senden (B1). Die KCL95 erhöht sie nicht selbst.
+    const appliance_caps_t *c = appliance_caps();
+    if (s_hot_limited && c && started(&s_st) && s_st.bowl_temp <= c->hot_temp - HOT_HYST_C &&
+        s_st.remaining_s > HOT_MIN_LEFT_S) {
+        s_hot_limited = false;
+        ESP_LOGI(TAG, "Inhalt wieder %d C: Stufe %u neu senden (Rest %lu s)", s_st.bowl_temp, step->speed,
+                 (unsigned long)s_st.remaining_s);
+        plan_step(step, s_st.remaining_s, true, now);
+        return;
+    }
     bool overdue = now - s_step_started > (int64_t)step->time_s * 1000000 + FALLBACK_US;
     if (last) {
         if ((s_seen_counting && !started(&s_st) && s_st.remaining_s == 0) || overdue) finish(now);
