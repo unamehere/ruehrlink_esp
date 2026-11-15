@@ -28,6 +28,8 @@ typedef struct {
     const appliance_speed_t *speeds;  // benannte Stufen
     uint8_t n_speeds;
     uint32_t time_max_s;    // längste Programmzeit
+    int16_t hot_temp;       // °C: ab hier gilt der Inhalt als heiß (Soll- oder Ist-Temperatur)
+    uint8_t hot_speed_max;  // höchste erlaubte Dauerstufe (Wert v) bei heißem Inhalt
     bool has_scale;         // Waage vorhanden
     bool remote_start;      // Start aus der Ferne möglich (Kenwood: nein, Knopf drücken)
 } appliance_caps_t;
@@ -42,7 +44,9 @@ typedef struct {
 // Gemeinsamer Status aller Geräte. Gerätespezifisches bleibt im Treiber.
 typedef struct {
     bool connected;         // Gerät mit der Brücke verbunden
-    bool running;           // Motor/Programm läuft
+    bool running;           // Motor dreht gerade (bei Rührintervallen an/aus im Wechsel!)
+    bool active;            // Programm der Maschine läuft (auch Heizen ohne Motor, Rührintervall-Pausen)
+    bool keep_warm;         // Warmhalten nach einem Heizprogramm (KCL95: 30 min, Rührintervall 2)
     bool heating;
     bool hot;
     bool bowl_fitted;

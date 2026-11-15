@@ -19,7 +19,9 @@
 #include "led.h"
 #include "net.h"
 #include "provision.h"
+#include "sequencer.h"
 #include "storage.h"
+#include "update.h"
 
 static const char *TAG = "freikoch";
 
@@ -52,6 +54,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Freikoch Bruecke startet");
     init_nvs();
+    update_init();
     factory_check_power_cycles();
     led_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -65,6 +68,7 @@ void app_main(void)
 
     net_start();
     appliance_register(kenwood_driver());
+    sequencer_init();
     api_start();
     provision_start();
 

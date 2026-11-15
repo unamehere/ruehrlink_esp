@@ -22,8 +22,10 @@
 static const char *TAG = "kenwood";
 
 // Protokoll siehe docs/architektur.md – verifiziert mit dem MicroPython-Prototyp an einer KCL95.
-#define PING_INTERVAL_US  (20 * 1000000LL)   // ohne Ping trennt die Maschine nach ~60 s
-#define RX_TIMEOUT_US     (70 * 1000000LL)   // so lange nichts gehört → Verbindung gilt als tot
+#define PING_INTERVAL_US  (5 * 1000000LL)    // Lebenszeichen; ohne Ping trennt die Maschine nach ~60 s
+#define RX_TIMEOUT_US     (15 * 1000000LL)   // so lange nichts gehört (Pong zählt) → Verbindung gilt als tot
+#define RX_TIMEOUT_NOPONG_US (70 * 1000000LL)  // falls die Maschine auf Pings nicht antwortet
+#define PROBE_US          (3 * 1000000LL)    // nach fehlender Bestätigung: so lange auf Antwort warten
 #define ACK_TIMEOUT_US    (5 * 1000000LL)
 #define MAX_FRAME_LEN     4096
 
@@ -73,6 +75,8 @@ static const appliance_caps_t s_caps = {
     .speeds = s_speeds,
     .n_speeds = sizeof(s_speeds) / sizeof(s_speeds[0]),
     .time_max_s = 8 * 3600,
+    .hot_temp = 60,         // vorläufig: Grenze und Stufe an der Maschine/Anleitung prüfen
+    .hot_speed_max = 7,     // Dauerstufe "2"
     .has_scale = true,
     .remote_start = false,
 };
@@ -81,7 +85,14 @@ static const appliance_caps_t s_caps = {
 static httpd_handle_t s_server;
 static int s_ws_fd = -1;
 static int64_t s_last_rx_us;
-static appliance_status_t s_st;
+static bool s_pong_seen;        // beantwortet die Maschine auf dieser Verbindung unsere Pings?
+static int64_t s_probe_at;      // Zeitpunkt der Nachfrage nach einer fehlenden Bestätigung
+static esp_timer_handle_t s_probe_timer;
+// HeadLiftInterlockClosed und bowlFitted stehen NICHT im vollen Status der KCL95, sondern kommen nur als
+// Änderung (gemessen 13.11.2026). Ohne Meldung gelten Kopf und Schüssel als in Ordnung – sonst zeigt die App
+// dauerhaft „Schüssel einsetzen und Kopf schließen“ und Programme starten nicht. Die Maschine verriegelt
+// den Motor bei offenem Kopf bzw. fehlender Schüssel ohnehin selbst.
+static appliance_status_t s_st = { .lid_closed = true, .bowl_fitted = true };
 static esp_timer_handle_t s_ping_timer;
 static esp_timer_handle_t s_ack_timer;
 static volatile uint32_t s_connect_count;   // zählt neue Verbindungen (für die Kopplung)
@@ -127,8 +138,9 @@ static void send_text_work(void *arg)
 static void ping_work(void *arg)
 {
     if (s_ws_fd < 0) return;
-    if (esp_timer_get_time() - s_last_rx_us > RX_TIMEOUT_US) {
-        ESP_LOGW(TAG, "keine Antwort der Maschine seit %lld s", RX_TIMEOUT_US / 1000000);
+    int64_t timeout = s_pong_seen ? RX_TIMEOUT_US : RX_TIMEOUT_NOPONG_US;
+    if (esp_timer_get_time() - s_last_rx_us > timeout) {
+        ESP_LOGW(TAG, "keine Antwort der Maschine seit %lld s – Verbindung gilt als getrennt", timeout / 1000000);
         httpd_sess_trigger_close(s_server, s_ws_fd);
         return;
     }
@@ -140,10 +152,36 @@ static void ping_work(void *arg)
 
 static void ping_timer_cb(void *arg) { httpd_queue_work(s_server, ping_work, NULL); }
 
+// Fehlt eine Bestätigung, sofort nachfragen (Ping): kommt binnen PROBE_US nichts zurück, ist die
+// Maschine weg (z. B. ausgeschaltet) – die App zeigt dann gleich „nicht verbunden“ (Fehlerliste F7).
+static void probe_check_work(void *arg)
+{
+    if (s_ws_fd >= 0 && s_last_rx_us < s_probe_at) {
+        ESP_LOGW(TAG, "Maschine antwortet nicht – Verbindung gilt als getrennt");
+        httpd_sess_trigger_close(s_server, s_ws_fd);
+    }
+}
+
+static void probe_timer_cb(void *arg) { httpd_queue_work(s_server, probe_check_work, NULL); }
+
+static void probe_work(void *arg)
+{
+    if (s_ws_fd < 0) return;
+    s_probe_at = esp_timer_get_time();
+    httpd_ws_frame_t f = {.type = HTTPD_WS_TYPE_PING};
+    if (httpd_ws_send_frame_async(s_server, s_ws_fd, &f) != ESP_OK) {
+        httpd_sess_trigger_close(s_server, s_ws_fd);
+        return;
+    }
+    esp_timer_stop(s_probe_timer);
+    esp_timer_start_once(s_probe_timer, PROBE_US);
+}
+
 static void ack_timeout_cb(void *arg)
 {
     ESP_LOGW(TAG, "keine Bestaetigung der Maschine");
     appliance_report_ack(false);
+    httpd_queue_work(s_server, probe_work, NULL);
 }
 
 static esp_err_t send_program(const appliance_program_t *p)
@@ -309,6 +347,8 @@ static void handle_status(const cJSON *d, const char *raw)
     s_st.speed_set = speed;
     s_st.remaining_s = rem < 0 ? 0 : rem;
     read_bool(d, "motorOn", &s_st.running);
+    read_bool(d, "machineActive", &s_st.active);
+    read_bool(d, "keepWarm", &s_st.keep_warm);
     read_bool(d, "heating", &s_st.heating);
     read_bool(d, "hot", &s_st.hot);
     read_bool(d, "bowlFitted", &s_st.bowl_fitted);
@@ -358,6 +398,9 @@ static esp_err_t ws_handler(httpd_req_t *req)
     if (fd != s_ws_fd) {
         if (s_ws_fd >= 0) httpd_sess_trigger_close(s_server, s_ws_fd);
         s_st.connected = false;  // damit set_connected() das Ereignis sicher auslöst
+        s_st.lid_closed = true;  // unbekannt bis zur nächsten Meldung (siehe s_st)
+        s_st.bowl_fitted = true;
+        s_pong_seen = false;
         s_ws_fd = fd;
         set_connected(true);
     }
@@ -389,7 +432,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
         httpd_ws_send_frame(req, &f);
         set_connected(false);
         break;
-    default:  // PONG: nur Lebenszeichen
+    case HTTPD_WS_TYPE_PONG:  // Lebenszeichen (s_last_rx_us oben)
+        if (!s_pong_seen) ESP_LOGI(TAG, "Maschine beantwortet Ping – schnelle Trennungserkennung aktiv");
+        s_pong_seen = true;
+        break;
+    default:
         break;
     }
     free(buf);
@@ -446,8 +493,10 @@ static esp_err_t start(void)
 
     const esp_timer_create_args_t ping = {.callback = ping_timer_cb, .name = "kw_ping"};
     const esp_timer_create_args_t ack = {.callback = ack_timeout_cb, .name = "kw_ack"};
+    const esp_timer_create_args_t probe = {.callback = probe_timer_cb, .name = "kw_probe"};
     esp_timer_create(&ping, &s_ping_timer);
     esp_timer_create(&ack, &s_ack_timer);
+    esp_timer_create(&probe, &s_probe_timer);
     esp_timer_start_periodic(s_ping_timer, PING_INTERVAL_US);
 
     ESP_LOGI(TAG, "TLS-Server auf Port 443 bereit");
