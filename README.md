@@ -1,6 +1,6 @@
 # Rührlink – Firmware
 
-Die **Rührlink** ist eine kleine Box auf Basis des ESP32-S3. Sie ersetzt die
+Der **Rührlink** ist eine kleine Box auf Basis des ESP32-S3. Er ersetzt die
 abgeschaltete Hersteller-Cloud für die Küchenmaschine *Kenwood Cooking Chef XL (KCL95)*
 und macht sie wieder vernetzt nutzbar – komplett lokal, ohne Internet, ohne Konto.
 

@@ -1,4 +1,4 @@
-# Lokale App-API der Rührlink (v1, Entwurf)
+# Lokale App-API des Rührlink (v1, Entwurf)
 
 Die API ist nur im Heim-WLAN erreichbar. Sie ist die einzige Schnittstelle zwischen
 Brücke und App und wird in beiden Repos (`ruehrlink_esp`, `ruehrlink_app`) gegen diese Datei
