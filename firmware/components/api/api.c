@@ -3,10 +3,13 @@
 #include <ctype.h>
 #include <math.h>
 #include <dirent.h>
+#include <errno.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 
 #include "cJSON.h"
@@ -20,6 +23,7 @@
 #include "auth.h"
 #include "factory.h"
 #include "net.h"
+#include "recipes.h"
 #include "sequencer.h"
 #include "storage.h"
 #include "update.h"
@@ -493,6 +497,291 @@ static esp_err_t h_onboard(httpd_req_t *req)
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
 
+// --- Rezepte und Fotos ----------------------------------------------------------
+//
+// Alles wird in Blöcken gestreamt: Antworten als HTTP-Chunks direkt aus den Dateien, Fotos beim
+// Hochladen direkt in die Datei. Im RAM liegt höchstens ein Rezept (≤ 16 KB) samt cJSON-Baum.
+
+#define STREAM_BLOCK 1024
+
+// Letzten Pfadteil nach `prefix` lesen (".../recipes/<id>", ".../media/<sha>").
+static bool path_tail(httpd_req_t *req, const char *prefix, char *out, size_t len)
+{
+    size_t n = strlen(prefix);
+    if (strncmp(req->uri, prefix, n) != 0) return false;
+    const char *s = req->uri + n;
+    size_t k = strcspn(s, "?/");
+    if (k == 0 || k >= len || s[k] == '/') return false;
+    memcpy(out, s, k);
+    out[k] = '\0';
+    return true;
+}
+
+// Datei als Chunks senden; buf hat STREAM_BLOCK Byte. false, wenn die Verbindung weg ist.
+static bool send_file_chunks(httpd_req_t *req, const char *path, char *buf)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    bool ok = true;
+    size_t n;
+    while (ok && (n = fread(buf, 1, STREAM_BLOCK, f)) > 0) ok = httpd_resp_send_chunk(req, buf, n) == ESP_OK;
+    fclose(f);
+    return ok;
+}
+
+// "If-Match: 7" (auch "7" in Anführungszeichen wie ein ETag). -1 = kein Header, -2 = ungültig.
+static int64_t if_match_header(httpd_req_t *req)
+{
+    char v[24];
+    if (httpd_req_get_hdr_value_str(req, "If-Match", v, sizeof(v)) != ESP_OK) return -1;
+    char *p = v;
+    if (*p == '"') p++;
+    char *end;
+    errno = 0;
+    unsigned long long n = strtoull(p, &end, 10);
+    if (end == p || errno || n > UINT32_MAX || (*end && strcmp(end, "\"") != 0)) return -2;
+    return (int64_t)n;
+}
+
+static void broadcast_recipes(void)
+{
+    cJSON *d = cJSON_CreateObject();
+    cJSON_AddNumberToObject(d, "rev", recipes_rev());
+    broadcast("recipes", d);
+}
+
+typedef struct {
+    httpd_req_t *req;
+    uint32_t since;
+    bool deleted;  // zweiter Durchlauf: Löschungen
+    bool first;
+    bool ok;
+    char *buf;
+} list_ctx_t;
+
+static bool list_visit(const recipes_entry_t *e, void *arg)
+{
+    list_ctx_t *c = arg;
+    if (e->rev <= c->since || e->deleted != c->deleted) return true;
+    if (!c->first) c->ok = httpd_resp_send_chunk(c->req, ",", 1) == ESP_OK;
+    c->first = false;
+    if (c->ok && c->deleted) {
+        int n = snprintf(c->buf, STREAM_BLOCK, "\"%s\"", e->id);
+        c->ok = httpd_resp_send_chunk(c->req, c->buf, n) == ESP_OK;
+    } else if (c->ok) {
+        char path[96];
+        recipes_path(e, path, sizeof(path));
+        c->ok = send_file_chunks(c->req, path, c->buf);
+    }
+    return c->ok;
+}
+
+// GET /api/v1/recipes?since=<rev> → {"rev":n,"changed":[ganze Rezepte],"deleted":[ids]}
+static esp_err_t h_recipes(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char q[48], v[16];
+    uint32_t since = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        httpd_query_key_value(q, "since", v, sizeof(v)) == ESP_OK) {
+        since = strtoul(v, NULL, 10);
+    }
+    list_ctx_t c = {.req = req, .since = since, .first = true, .ok = true, .buf = malloc(STREAM_BLOCK)};
+    if (!c.buf) return httpd_resp_send_500(req);
+    httpd_resp_set_type(req, "application/json");
+    int n = snprintf(c.buf, STREAM_BLOCK, "{\"rev\":%" PRIu32 ",\"changed\":[", recipes_rev());
+    c.ok = httpd_resp_send_chunk(req, c.buf, n) == ESP_OK;
+    if (c.ok) recipes_foreach(list_visit, &c);
+    if (c.ok) c.ok = httpd_resp_send_chunk(req, "],\"deleted\":[", 13) == ESP_OK;
+    // Ohne Stand (since = 0) braucht die App keine Löschungen.
+    c.deleted = true;
+    c.first = true;
+    if (c.ok && since > 0) recipes_foreach(list_visit, &c);
+    if (c.ok) c.ok = httpd_resp_send_chunk(req, "]}", 2) == ESP_OK;
+    if (c.ok) httpd_resp_send_chunk(req, NULL, 0);
+    free(c.buf);
+    return c.ok ? ESP_OK : ESP_FAIL;  // ESP_FAIL schließt die halb gesendete Antwort
+}
+
+static esp_err_t h_recipe_get(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char id[RECIPES_ID_MAX + 1];
+    recipes_entry_t e;
+    if (!path_tail(req, "/api/v1/recipes/", id, sizeof(id)) || recipes_find(id, &e) != ESP_OK) {
+        return send_error(req, "404 Not Found", "recipe");
+    }
+    if (e.deleted) return send_error(req, "404 Not Found", "deleted");
+    char etag[16], path[96];
+    snprintf(etag, sizeof(etag), "\"%" PRIu32 "\"", e.rev);
+    recipes_path(&e, path, sizeof(path));
+    char *buf = malloc(STREAM_BLOCK);
+    if (!buf) return httpd_resp_send_500(req);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "ETag", etag);
+    bool ok = send_file_chunks(req, path, buf);
+    free(buf);
+    if (ok) httpd_resp_send_chunk(req, NULL, 0);
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
+static esp_err_t recipe_result(httpd_req_t *req, esp_err_t err, const char *id, const recipes_result_t *r)
+{
+    cJSON *o = cJSON_CreateObject();
+    switch (err) {
+    case ESP_OK:
+        broadcast_recipes();
+        cJSON_AddStringToObject(o, "id", id);
+        cJSON_AddNumberToObject(o, "rev", r->rev);
+        if (r->deleted) cJSON_AddBoolToObject(o, "deleted", true);
+        else cJSON_AddStringToObject(o, "updated", r->updated);
+        return send_json(req, "200 OK", o);
+    case ESP_ERR_INVALID_STATE:  // jemand anderes hat inzwischen geändert oder gelöscht
+        cJSON_AddStringToObject(o, "error", "rev");
+        cJSON_AddNumberToObject(o, "rev", r->rev);
+        cJSON_AddBoolToObject(o, "deleted", r->deleted);
+        return send_json(req, "412 Precondition Failed", o);
+    case ESP_ERR_INVALID_ARG:
+        cJSON_AddStringToObject(o, "error", r->error ? r->error : "json");
+        return send_json(req, "400 Bad Request", o);
+    case ESP_ERR_INVALID_SIZE:
+        cJSON_AddStringToObject(o, "error", "size");
+        return send_json(req, "413 Payload Too Large", o);
+    case ESP_ERR_NOT_FOUND:
+        cJSON_AddStringToObject(o, "error", "recipe");
+        return send_json(req, "404 Not Found", o);
+    case ESP_ERR_NO_MEM:
+        cJSON_AddStringToObject(o, "error", "memory");
+        return send_json(req, "503 Service Unavailable", o);
+    default:
+        cJSON_AddStringToObject(o, "error", "storage");
+        return send_json(req, "500 Internal Server Error", o);
+    }
+}
+
+// Body in einen frisch angelegten Puffer mit `extra` Byte Reserve lesen (NULL = Antwort schon gesendet).
+static char *recv_raw(httpd_req_t *req, size_t extra)
+{
+    char *buf = malloc(req->content_len + extra);
+    if (!buf) {
+        send_error(req, "503 Service Unavailable", "memory");
+        return NULL;
+    }
+    size_t got = 0;
+    int timeouts = 0;
+    while (got < req->content_len) {
+        int n = httpd_req_recv(req, buf + got, req->content_len - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 3) continue;
+        if (n <= 0) {
+            free(buf);
+            send_error(req, "400 Bad Request", "body");
+            return NULL;
+        }
+        got += n;
+    }
+    return buf;
+}
+
+static esp_err_t h_recipe_put(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char id[RECIPES_ID_MAX + 1];
+    if (!path_tail(req, "/api/v1/recipes/", id, sizeof(id)) || !recipes_valid_id(id)) {
+        return send_error(req, "400 Bad Request", "id");
+    }
+    int64_t match = if_match_header(req);
+    if (match == -2) return send_error(req, "400 Bad Request", "if_match");
+    if (req->content_len == 0) return send_error(req, "400 Bad Request", "body");
+    if (req->content_len > RECIPES_MAX_JSON) return send_error(req, "413 Payload Too Large", "size");
+    char *body = recv_raw(req, RECIPES_JSON_SLACK);
+    if (!body) return ESP_OK;
+    recipes_result_t r;
+    esp_err_t err = recipes_put(id, body, req->content_len, req->content_len + RECIPES_JSON_SLACK, match, &r);
+    return recipe_result(req, err, id, &r);
+}
+
+static esp_err_t h_recipe_delete(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char id[RECIPES_ID_MAX + 1];
+    if (!path_tail(req, "/api/v1/recipes/", id, sizeof(id))) return send_error(req, "404 Not Found", "recipe");
+    int64_t match = if_match_header(req);
+    if (match == -2) return send_error(req, "400 Bad Request", "if_match");
+    recipes_result_t r;
+    esp_err_t err = recipes_delete(id, match, &r);
+    return recipe_result(req, err, id, &r);
+}
+
+static esp_err_t h_media_get(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char sha[RECIPES_SHA_HEX + 1], path[96];
+    struct stat st;
+    if (!path_tail(req, "/api/v1/media/", sha, sizeof(sha)) || !recipes_media_valid(sha)) {
+        return send_error(req, "404 Not Found", "media");
+    }
+    recipes_media_path(sha, path, sizeof(path));
+    if (stat(path, &st) != 0) return send_error(req, "404 Not Found", "media");
+    char *buf = malloc(STREAM_BLOCK);
+    if (!buf) return httpd_resp_send_500(req);
+    httpd_resp_set_type(req, "image/webp");
+    httpd_resp_set_hdr(req, "Cache-Control", "private, max-age=31536000, immutable");
+    bool ok = send_file_chunks(req, path, buf);
+    free(buf);
+    if (ok) httpd_resp_send_chunk(req, NULL, 0);
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
+// Body = WebP (application/octet-stream oder image/webp), Name = SHA-256 des Inhalts.
+// Blockiert den Server für die Dauer des Uploads (1 MB im Heim-WLAN: ca. 1–3 s).
+static esp_err_t h_media_put(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    char sha[RECIPES_SHA_HEX + 1], path[96];
+    struct stat st;
+    if (!path_tail(req, "/api/v1/media/", sha, sizeof(sha)) || !recipes_media_valid(sha)) {
+        return send_error(req, "400 Bad Request", "sha256");
+    }
+    recipes_media_path(sha, path, sizeof(path));
+    if (stat(path, &st) == 0) {
+        // Schon da (gleicher Inhalt). Den Rest des Bodys verwirft der Server.
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "sha256", sha);
+        return send_json(req, "200 OK", o);
+    }
+    recipes_upload_t *u;
+    esp_err_t err = recipes_media_begin(sha, req->content_len, &u);
+    if (err == ESP_ERR_INVALID_SIZE) {
+        return send_error(req, req->content_len ? "413 Payload Too Large" : "400 Bad Request", "size");
+    }
+    if (err == ESP_ERR_NO_MEM) return send_error(req, "507 Insufficient Storage", "full");
+    if (err != ESP_OK) return send_error(req, "500 Internal Server Error", "storage");
+
+    char *buf = malloc(STREAM_BLOCK * 2);
+    size_t left = req->content_len;
+    int timeouts = 0;
+    while (buf && left > 0) {
+        int n = httpd_req_recv(req, buf, left < STREAM_BLOCK * 2 ? left : STREAM_BLOCK * 2);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 3) continue;
+        if (n <= 0) break;
+        timeouts = 0;
+        if (recipes_media_write(u, buf, n) != ESP_OK) break;
+        left -= n;
+    }
+    free(buf);
+    if (left > 0) {
+        recipes_media_abort(u);
+        return send_error(req, "400 Bad Request", "upload");
+    }
+    const char *code;
+    if (recipes_media_finish(u, &code) != ESP_OK) {
+        return send_error(req, strcmp(code, "storage") ? "400 Bad Request" : "500 Internal Server Error", code);
+    }
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "sha256", sha);
+    return send_json(req, "201 Created", o);
+}
+
 // --- Firmware-Update ----------------------------------------------------------
 
 static bool hex_to_bytes(const char *hex, uint8_t *out, size_t n)
@@ -622,7 +911,8 @@ esp_err_t api_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_open_sockets = MAX_CLIENTS - 1;
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 32;  // Platz für Rezepte/Fotos
+    cfg.max_uri_handlers = 32;  // Waage, Rezepte, Fotos
+    cfg.uri_match_fn = httpd_uri_match_wildcard;  // /recipes/{id}, /media/{sha256}
     cfg.stack_size = 8192;  // Signaturprüfung beim Update
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
@@ -641,6 +931,12 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/sequence/abort", .method = HTTP_POST, .handler = h_seq_abort},
         {.uri = "/api/v1/sequence", .method = HTTP_GET, .handler = h_seq_get},
         {.uri = "/api/v1/programs", .method = HTTP_GET, .handler = h_programs},
+        {.uri = "/api/v1/recipes", .method = HTTP_GET, .handler = h_recipes},
+        {.uri = "/api/v1/recipes/*", .method = HTTP_GET, .handler = h_recipe_get},
+        {.uri = "/api/v1/recipes/*", .method = HTTP_PUT, .handler = h_recipe_put},
+        {.uri = "/api/v1/recipes/*", .method = HTTP_DELETE, .handler = h_recipe_delete},
+        {.uri = "/api/v1/media/*", .method = HTTP_GET, .handler = h_media_get},
+        {.uri = "/api/v1/media/*", .method = HTTP_PUT, .handler = h_media_put},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
         {.uri = "/api/v1/reset", .method = HTTP_POST, .handler = h_reset},
         {.uri = "/api/v1/ota", .method = HTTP_POST, .handler = h_ota},

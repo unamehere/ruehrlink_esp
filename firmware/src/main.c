@@ -3,9 +3,6 @@
 // main.c verdrahtet nur die Module (components/*) und enthält keine eigene Logik.
 // Modulübersicht: docs/architektur.md
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
@@ -21,6 +18,7 @@
 #include "led.h"
 #include "net.h"
 #include "provision.h"
+#include "recipes.h"
 #include "sequencer.h"
 #include "storage.h"
 #include "update.h"
@@ -35,21 +33,6 @@ static void init_nvs(void)
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
-}
-
-// Vorläufiger Test, dass der Speicher Neustarts übersteht. Fliegt raus, sobald die
-// Rezeptablage steht.
-static void storage_smoke_test(void)
-{
-    const char *path = STORAGE_ROOT "/boot_count.txt";
-    char *old = storage_read(path, 32, NULL);
-    int count = old ? atoi(old) : 0;
-    free(old);
-    char buf[16];
-    int n = snprintf(buf, sizeof(buf), "%d", count + 1);
-    if (storage_write(path, buf, n) == ESP_OK) {
-        ESP_LOGI(TAG, "Start Nr. %d (aus %s)", count + 1, path);
-    }
 }
 
 #if CONFIG_RL_RAM_LOG
@@ -93,7 +76,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     if (storage_init() == ESP_OK) {
-        storage_smoke_test();
+        recipes_init();
     } else {
         // Ohne Speicher läuft die Brücke weiter (manuelle Steuerung), nur ohne Rezepte.
         ESP_LOGE(TAG, "Speicher nicht verfuegbar");
