@@ -213,19 +213,39 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
   "servings": 4,
   "photo": "sha256",
   "tags": ["Brot", "Teig"],
-  "ingredients": [{"amount": 500, "unit": "g", "name": "Dinkelmehl 630"}],
+  "ingredients": [
+    {"amount": 500, "unit": "g", "name": "Dinkelmehl 630"},
+    {"amount": 330, "unit": "g", "name": "Wasser"},
+    {"amount": 10, "unit": "g", "name": "Salz"}
+  ],
   "steps": [
-    {"text": "Mehl in die Schüssel wiegen.", "photo": null, "weigh": {"target": 500, "unit": "g"}},
-    {"text": "Kneten.", "machine": {"programId": "dinkelteig"}},
+    {"text": "Mehl und Wasser in die Schüssel wiegen.", "tool": "knethaken",
+     "ingredients": [{"amount": 500, "unit": "g", "name": "Dinkelmehl 630"},
+                     {"amount": 330, "unit": "g", "name": "Wasser"}]},
+    {"text": "Salz dazu und kneten.", "ingredients": [{"amount": 10, "unit": "g", "name": "Salz"}],
+     "machine": {"programId": "dinkelteig"}},
     {"text": "Kurz rühren.", "machine": {"temperature": 0, "time": 60, "speed": 2}}
   ]
 }
 ```
 
 Pflicht ist nur `title` (1–200 Zeichen). `servings` 1–1000, `photo` = SHA-256 eines Fotos oder `null`.
-Ein Schritt hat `text` und optional **entweder** `weigh` (Zielmenge, `unit` meist `g`; skaliert die App mit den Portionen)
-**oder** `machine` (`programId` eines Programms der Brücke **oder** Einzelwerte wie bei `/machine/program`).
-Mengen in `ingredients` beziehen sich auf `servings`. `amount` 0 = ohne Mengenangabe („Salz“).
+
+Ein Schritt hat `text` und optional:
+- `ingredients` – was in diesem Schritt dazukommt (max. 50). Zutaten in Gramm/Kilogramm wiegt der Kochmodus
+  nacheinander mit der Waage ab (je Zutat eine Tara); andere Einheiten werden nur angezeigt.
+- `tool` – Werkzeug: `kHaken`, `flexi`, `schneebesen`, `knethaken`, `kochRuehrelement`, `daempfeinsatz`
+  (unbekannte Werte ignoriert die App). Der Kochmodus zeigt „… einsetzen“, wenn es sich ändert.
+- `machine` – `programId` eines Programms der Brücke **oder** Einzelwerte wie bei `/machine/program`.
+
+Ein Schritt darf Zutaten, Werkzeug **und** Maschine zugleich haben („Zwiebel und Öl anbraten“).
+Das `ingredients` oben ist die **zusammengezählte** Liste aller Schritte (gleicher Name und gleiche Einheit
+addiert). Die App erzeugt sie beim Speichern; sie steht nur da, damit z. B. eine Einkaufsliste nicht die Schritte
+durchsuchen muss. Mengen beziehen sich auf `servings`; `amount` 0 = ohne Mengenangabe („Salz“).
+
+Altes Format (bis App 0.3.2): Zutaten nur oben, Schritte mit `weigh: {"target","unit"}`. Die App wandelt es beim
+Lesen um (passende Zutat zum `weigh`-Schritt, übrige in den ersten Schritt) und speichert es beim nächsten
+Bearbeiten im neuen Format. Die Brücke nimmt beide Formate an.
 
 ### Programm
 

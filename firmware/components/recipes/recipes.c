@@ -260,8 +260,12 @@ static const char *validate(const cJSON *j)
     const cJSON *st;
     cJSON_ArrayForEach(st, steps) {
         const cJSON *txt = get(st, "text"), *w = get(st, "weigh"), *m = get(st, "machine");
+        const cJSON *tool = get(st, "tool");
         if (!absent(txt) && !cJSON_IsString(txt)) return "steps";
         if (!photo_ok(get(st, "photo"))) return "steps";
+        // Zutaten pro Schritt (seit App 0.3.3); `weigh` nur noch in alten Rezepten
+        if (!array_of(get(st, "ingredients"), cJSON_Object, 50)) return "steps";
+        if (!absent(tool) && !(cJSON_IsString(tool) && strlen(tool->valuestring) <= 32)) return "steps";
         if (!absent(w) && !(cJSON_IsObject(w) && cJSON_IsNumber(get(w, "target")))) return "steps";
         if (!absent(m) && !cJSON_IsObject(m)) return "steps";
     }
@@ -280,7 +284,7 @@ static void set_front(cJSON *j, const char *key, cJSON *item)
 }
 
 // cJSON liest rekursiv: tief verschachteltes JSON würde den Stack des HTTP-Servers sprengen.
-// Ein Rezept braucht 4 Ebenen (Rezept → steps → Schritt → machine); vor dem Parsen grob zählen.
+// Ein Rezept braucht 5 Ebenen (Rezept → steps → Schritt → ingredients → Zutat); vor dem Parsen grob zählen.
 #define MAX_DEPTH 8
 
 static bool depth_ok(const char *s, size_t len)
