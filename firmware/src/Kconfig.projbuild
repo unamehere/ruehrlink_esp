@@ -9,6 +9,16 @@ config RL_DEVELOPER_MODE
         - Diagnose-Ausgaben auf der seriellen Konsole (z. B. fremdes Zertifikat
           des Einrichtungs-Servers der Maschine)
 
+config RL_RAM_LOG
+    bool "RAM-Verbrauch alle 10 s ausgeben"
+    depends on RL_DEVELOPER_MODE
+    default n
+    help
+        Gibt freien internen RAM, den Tiefststand seit dem Start und den groessten
+        freien Block aus (bei PSRAM auch dessen Belegung) und meldet jede
+        fehlgeschlagene Speicheranforderung. Fuer die Abschaetzung, ob ein Chip
+        ohne PSRAM (z. B. ESP32-C6) reicht.
+
 config RL_SPEED_TEST
     bool "Testmodus Stufen (rohe Werte 0-15 statt benannter Stufen)"
     depends on RL_DEVELOPER_MODE
