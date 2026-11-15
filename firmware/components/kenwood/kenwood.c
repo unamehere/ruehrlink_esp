@@ -411,11 +411,22 @@ static esp_err_t ws_handler(httpd_req_t *req)
         s_ws_fd = fd;
         set_connected(true);
         // Adresse der Maschine merken: ihre Waage ist ein eigener Server dort (scale.c)
-        struct sockaddr_storage peer;
+        struct sockaddr_storage peer = {0};
         socklen_t plen = sizeof(peer);
-        if (getpeername(fd, (struct sockaddr *)&peer, &plen) == 0 && peer.ss_family == AF_INET) {
-            kenwood_scale_set_host(((struct sockaddr_in *)&peer)->sin_addr.s_addr);
+        // Der Server lauscht auf IPv6 (Dual-Stack): IPv4-Gegenstellen kommen als ::ffff:a.b.c.d.
+        uint32_t ip = 0;
+        if (getpeername(fd, (struct sockaddr *)&peer, &plen) == 0) {
+            if (peer.ss_family == AF_INET) {
+                ip = ((struct sockaddr_in *)&peer)->sin_addr.s_addr;
+            } else if (peer.ss_family == AF_INET6) {
+                const struct in6_addr *a = &((struct sockaddr_in6 *)&peer)->sin6_addr;
+                if (a->un.u32_addr[0] == 0 && a->un.u32_addr[1] == 0 && a->un.u32_addr[2] == htonl(0xffff)) {
+                    ip = a->un.u32_addr[3];
+                }
+            }
         }
+        if (ip) kenwood_scale_set_host(ip);
+        else ESP_LOGW(TAG, "Adresse der Maschine unbekannt (Familie %d) – keine Waage", peer.ss_family);
     }
 
     httpd_ws_frame_t f = {0};

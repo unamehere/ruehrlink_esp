@@ -38,6 +38,8 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
+| POST | `/api/v1/scale/watch` | Waage liefern lassen `{"seconds":30}` (max. 300); App erneuert alle ~10 s, solange sie sie zeigt. 409 `not_connected`, 501 `no_scale` |
+| POST | `/api/v1/scale/tare` | aktuelles Gewicht als Null → `{"g":0,"tare":g}`; 409 `no_weight` ohne Messwert |
 | POST | `/api/v1/sequence/start` | Programm starten `{"programId":"…"}` oder inline `{"name":"…","steps":[…]}` |
 | POST | `/api/v1/sequence/abort` | laufendes Programm abbrechen (stoppt auch die Maschine) |
 | GET | `/api/v1/sequence` | Zustand des Programms (wie WS `seq`), z. B. nach dem Wiederverbinden der App |
@@ -140,7 +142,7 @@ Brücke → App:
 
 ```json
 {"t":"status","d":{"connected":true,"running":false,"active":false,"keepWarm":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
-{"t":"weight","d":{"g":251.4}}
+{"t":"weight","d":{"g":251.4,"gross":1460.2}}
 {"t":"seq","d":{"programId":"dinkelteig","name":"Dinkelteig kneten","step":2,"of":4,"label":"Kneten","state":"running","reason":null,"stepRemainingS":240}}
 {"t":"ack","d":{"cmd":"setProgramme","ok":true}}
 {"t":"recipes","d":{"rev":42}}
@@ -156,7 +158,7 @@ Brücke → App:
   `state`: `idle` · `waiting_start` (Knopf an der Maschine drücken) · `running` · `paused` · `done` · `aborted`.
   `reason`: `null` · `press_start` · `lid_open` · `bowl_missing` · `machine_paused` (am Gerät angehalten) ·
   `disconnected` · `no_ack` (Maschine bestätigt nicht) · `user` (Abbruch per App) · `timeout` (30 min pausiert).
-- `weight` max. 10 Nachrichten/s.
+- `weight`: `g` = netto nach Tara (rechnet die Brücke, alle Apps gleich), `gross` = Wert der Maschine. Nur solange die Waage läuft (`scale/watch` oder bis 120 s nach dem Hochklappen des Kopfs), max. 10 Nachrichten/s, mindestens 1/s. Die Brücke holt die Werte über eine eigene TLS-Verbindung vom Waage-Server der Maschine (`wss://<Maschine>:443/`).
 - `recipes` signalisiert, dass sich die Bibliothek geändert hat → App holt `GET /recipes?since=`.
 
 App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"temperature":0,"time":120,"speed":2}}`.

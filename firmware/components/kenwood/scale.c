@@ -330,6 +330,8 @@ static void scale_task(void *arg)
             uint32_t ip = s_host;
             if (st.connected && ip) {
                 session(ip);
+            } else {
+                ESP_LOGD(TAG, "warte: Maschine %s, Adresse %s", st.connected ? "da" : "fehlt", ip ? "bekannt" : "unbekannt");
             }
             if (needed()) vTaskDelay(pdMS_TO_TICKS(st.connected && ip ? RETRY_MS : 1000));
             continue;
