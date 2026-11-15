@@ -35,3 +35,9 @@ CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 # App-API: Token schon beim WebSocket-Handshake pruefen; genug Sockets fuer Maschine + Apps
 CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# TLS-Puffer nur bei Bedarf anlegen und nach dem Handshake verkleinern (spart pro Verbindung ~15-20 KB,
+# wichtig fuer Chips ohne PSRAM wie den ESP32-C6)
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y

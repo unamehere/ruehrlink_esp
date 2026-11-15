@@ -13,6 +13,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 #include "nvs.h"
@@ -24,6 +25,7 @@
 static const char *TAG = "provision";
 
 #define WINDOW_US     (10 * 60 * 1000000LL)  // Bluetooth nach dem Einschalten (Heim-WLAN schon eingerichtet)
+#define AFTER_PAIR_US (30 * 1000000LL)       // Bluetooth nach erfolgreicher Kopplung der App
 #define POP_LEN       10
 #define MAX_SCAN      15
 #define SCAN_PAGE     5     // Netze pro rl-scan-Antwort (BLE-Grenze 512 Byte)
@@ -225,6 +227,10 @@ static esp_err_t ep_token(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_
     api_issue_token(token, sizeof(token));
     ESP_LOGI(TAG, "App per Bluetooth gekoppelt");
     led_signal(LED_OK);
+    // Kopplung fertig: Bluetooth nicht erst nach Ablauf des Fensters, sondern bald beenden (RAM).
+    // Ohne Heim-WLAN verlängert stop_cb() selbst.
+    esp_timer_stop(s_stop_timer);
+    esp_timer_start_once(s_stop_timer, AFTER_PAIR_US);
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "token", token);
     return reply(o, out, outlen);
@@ -243,6 +249,21 @@ static void on_prov_event(void *arg, esp_event_base_t base, int32_t id, void *da
     ESP_LOGI(TAG, "Bluetooth-Einrichtung beendet");
 }
 
+// Im SESSION_ONLY-Modus hält stop_provisioning() den Bluetooth-Transport absichtlich am Leben, und
+// NETWORK_PROV_END kam in der Praxis nicht an: Bluetooth blieb dauerhaft an und belegte ~40 KB
+// internen RAM (Messung 15.11.2026). Freigeben kann nur network_prov_mgr_deinit(). Das läuft in einem
+// eigenen Task – nicht im Timer (Absturz F3) und nicht im NimBLE-Task (der wird dabei beendet).
+static void deinit_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(500));  // laufende Antwort an die App noch rausgehen lassen
+    if (s_running) {
+        s_running = false;
+        network_prov_mgr_deinit();
+        ESP_LOGI(TAG, "Bluetooth-Einrichtung beendet, Speicher frei");
+    }
+    vTaskDelete(NULL);
+}
+
 static void stop_cb(void *arg)
 {
     if (!net_home_connected()) {  // ohne Heim-WLAN bleibt Bluetooth an
@@ -250,7 +271,9 @@ static void stop_cb(void *arg)
         return;
     }
     ESP_LOGI(TAG, "Bluetooth-Einrichtung wird beendet");
-    network_prov_mgr_stop_provisioning();  // asynchron, Ende kommt als NETWORK_PROV_END
+    if (xTaskCreate(deinit_task, "prov_deinit", 4096, NULL, 5, NULL) != pdPASS) {
+        esp_timer_start_once(s_stop_timer, 60 * 1000000LL);  // kein RAM für den Task: später erneut
+    }
 }
 
 esp_err_t provision_start(void)

@@ -18,6 +18,8 @@
 #include "net.h"
 #include "led.h"
 #include "setup_cert.h"
+#include "scale.h"
+#include "lwip/sockets.h"
 
 static const char *TAG = "kenwood";
 
@@ -28,6 +30,7 @@ static const char *TAG = "kenwood";
 #define PROBE_US          (3 * 1000000LL)    // nach fehlender Bestätigung: so lange auf Antwort warten
 #define ACK_TIMEOUT_US    (5 * 1000000LL)
 #define MAX_FRAME_LEN     4096
+#define LID_SCALE_S       120                // Waage nach dem Hochklappen des Kopfs so lange holen
 
 extern const uint8_t cert_start[] asm("_binary_machine_cert_pem_start");
 extern const uint8_t cert_end[] asm("_binary_machine_cert_pem_end");
@@ -313,6 +316,7 @@ static esp_err_t onboard(void)
 {
     if (s_onboarding) return ESP_ERR_INVALID_STATE;
     s_onboarding = true;
+    kenwood_scale_forget();  // evtl. andere Maschine: deren Waage-Zertifikat neu lernen
     if (xTaskCreate(onboard_task, "kw_onboard", 6144, NULL, 4, NULL) != pdPASS) {
         s_onboarding = false;
         return ESP_ERR_NO_MEM;
@@ -352,7 +356,10 @@ static void handle_status(const cJSON *d, const char *raw)
     read_bool(d, "heating", &s_st.heating);
     read_bool(d, "hot", &s_st.hot);
     read_bool(d, "bowlFitted", &s_st.bowl_fitted);
+    bool lid_was_closed = s_st.lid_closed;
     read_bool(d, "HeadLiftInterlockClosed", &s_st.lid_closed);
+    // Kopf hochgeklappt: jetzt wird meist eingewogen → Waage vorsorglich holen (die App zeigt sie an)
+    if (lid_was_closed && !s_st.lid_closed) kenwood_scale_watch(LID_SCALE_S);
 
     // reine Temperatur-Schwankungen (~1/s) nicht protokollieren
     bool only_temps = true;
@@ -403,6 +410,23 @@ static esp_err_t ws_handler(httpd_req_t *req)
         s_pong_seen = false;
         s_ws_fd = fd;
         set_connected(true);
+        // Adresse der Maschine merken: ihre Waage ist ein eigener Server dort (scale.c)
+        struct sockaddr_storage peer = {0};
+        socklen_t plen = sizeof(peer);
+        // Der Server lauscht auf IPv6 (Dual-Stack): IPv4-Gegenstellen kommen als ::ffff:a.b.c.d.
+        uint32_t ip = 0;
+        if (getpeername(fd, (struct sockaddr *)&peer, &plen) == 0) {
+            if (peer.ss_family == AF_INET) {
+                ip = ((struct sockaddr_in *)&peer)->sin_addr.s_addr;
+            } else if (peer.ss_family == AF_INET6) {
+                const struct in6_addr *a = &((struct sockaddr_in6 *)&peer)->sin6_addr;
+                if (a->un.u32_addr[0] == 0 && a->un.u32_addr[1] == 0 && a->un.u32_addr[2] == htonl(0xffff)) {
+                    ip = a->un.u32_addr[3];
+                }
+            }
+        }
+        if (ip) kenwood_scale_set_host(ip);
+        else ESP_LOGW(TAG, "Adresse der Maschine unbekannt (Familie %d) – keine Waage", peer.ss_family);
     }
 
     httpd_ws_frame_t f = {0};
@@ -509,6 +533,7 @@ static const appliance_driver_t s_driver = {
     .send_program = send_program,
     .stop = stop,
     .onboard = onboard,
+    .scale_watch = kenwood_scale_watch,
 };
 
 const appliance_driver_t *kenwood_driver(void) { return &s_driver; }

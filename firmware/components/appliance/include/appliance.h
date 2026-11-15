@@ -64,13 +64,20 @@ typedef struct {
     esp_err_t (*send_program)(const appliance_program_t *p);   // Werte senden
     esp_err_t (*stop)(void);                                   // laufendes Programm beenden
     esp_err_t (*onboard)(void);                                // Gerät mit der Brücke koppeln
+    esp_err_t (*scale_watch)(uint32_t seconds);                // Waage für so lange liefern (NULL = keine)
 } appliance_driver_t;
+
+// Messwert der Waage (Ereignis APPLIANCE_EVENT_WEIGHT)
+typedef struct {
+    float net;              // g, nach Tara
+    float gross;            // g, wie vom Gerät
+} appliance_weight_t;
 
 ESP_EVENT_DECLARE_BASE(APPLIANCE_EVENT);
 typedef enum {
     APPLIANCE_EVENT_STATUS,     // Daten: appliance_status_t
     APPLIANCE_EVENT_ACK,        // Daten: bool (Programm übernommen ja/nein)
-    APPLIANCE_EVENT_WEIGHT,     // Daten: float (Gramm)
+    APPLIANCE_EVENT_WEIGHT,     // Daten: appliance_weight_t (gedrosselt, max. 10/s)
     APPLIANCE_EVENT_ONBOARD,    // Daten: appliance_onboard_t
 } appliance_event_t;
 
@@ -92,10 +99,17 @@ esp_err_t appliance_send(const appliance_program_t *p);
 esp_err_t appliance_stop(void);
 esp_err_t appliance_onboard(void);
 
+// Waage `seconds` Sekunden lang liefern lassen (App erneuert, solange sie sie anzeigt).
+// ESP_ERR_NOT_SUPPORTED ohne Waage, ESP_ERR_INVALID_STATE wenn kein Gerät verbunden ist.
+esp_err_t appliance_scale_watch(uint32_t seconds);
+// Aktuelles Gewicht als Null setzen. ESP_ERR_INVALID_STATE, solange kein Messwert da ist.
+esp_err_t appliance_scale_tare(float *tare_out);
+
 // --- für Treiber ----------------------------------------------------------
 
 esp_err_t appliance_register(const appliance_driver_t *driver);  // startet den Treiber
 void appliance_set_status(const appliance_status_t *s);           // Ereignis nur bei Änderung
 void appliance_report_ack(bool ok);
-void appliance_report_weight(float grams);
+void appliance_report_weight(float grams);   // Rohwert vom Gerät, beliebig oft (wird gedrosselt)
+void appliance_scale_stopped(void);          // Waage aus: Messwert und Tara verwerfen
 void appliance_report_onboard(appliance_onboard_t state);

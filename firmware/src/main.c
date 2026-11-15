@@ -7,6 +7,8 @@
 #include <stdlib.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_event.h"
@@ -50,9 +52,40 @@ static void storage_smoke_test(void)
     }
 }
 
+#if CONFIG_RL_RAM_LOG
+static void alloc_failed(size_t size, uint32_t caps, const char *function_name)
+{
+    ESP_LOGE("ram", "FEHLGESCHLAGEN: %u Byte (caps 0x%lx) in %s, frei intern %u, groesster Block %u",
+             (unsigned)size, (unsigned long)caps, function_name ? function_name : "?",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
+static void log_ram(const char *wann)
+{
+    ESP_LOGI("ram", "[%s] intern frei %u KB, Tiefststand %u KB, groesster Block %u KB",
+             wann,
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+#if CONFIG_SPIRAM
+    size_t ps_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    size_t ps_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+    ESP_LOGI("ram", "[%s] PSRAM belegt %u KB, Spitze %u KB",
+             wann,
+             (unsigned)((ps_total - heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) / 1024),
+             (unsigned)((ps_total - ps_min) / 1024));
+#endif
+}
+#endif
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "Ruehrlink startet");
+#if CONFIG_RL_RAM_LOG
+    heap_caps_register_failed_alloc_callback(alloc_failed);
+    log_ram("Start");
+#endif
     init_nvs();
     update_init();
     factory_check_power_cycles();
@@ -72,7 +105,13 @@ void app_main(void)
     api_start();
     provision_start();
 
+#if CONFIG_RL_RAM_LOG
+    log_ram("alles gestartet");
+#endif
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
+#if CONFIG_RL_RAM_LOG
+        log_ram("laufend");
+#endif
     }
 }
