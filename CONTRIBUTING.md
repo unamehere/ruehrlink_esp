@@ -28,10 +28,16 @@ Gilt für alle Repos des Projekts (`ruehrlink_esp`, `ruehrlink_app`, `ruehrlink_
 Typen: `feat` (Funktion) · `fix` (Fehler) · `docs` · `style` (Formatierung) · `refactor` · `test` ·
 `build` (Bauen, Fertigungsdaten) · `chore` (Sonstiges).
 
+## Changelog
+
+Jede Änderung, die man beim Benutzen merkt, bekommt im selben Commit einen Eintrag in `CHANGELOG.md`
+unter **Unveröffentlicht** (Neu / Geändert / Behoben, in Nutzersprache). Reine Umbauten, Tests und Doku nicht.
+
 ## Release
 
 1. Testplan an der echten Maschine durchlaufen (`ruehrlink_esp/docs/testplan.md`), Ergebnis eintragen.
-2. `develop` → `main` mergen, Tag `vX.Y.Z` setzen. App und Firmware teilen `MAJOR.MINOR`, der Patch zählt je Repo (siehe docs/updates.md).
-3. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
+2. `develop` → `main` mergen, Tag `vX.Y.Z` (App) bzw. `fw-vX.Y.Z` (Firmware) setzen. App und Firmware haben eigene Versionsnummern; was sie verbindet, sind `api` und `features` (siehe docs/updates.md).
+3. Im `CHANGELOG.md` die Einträge unter „Unveröffentlicht“ in die neue Version verschieben (Datum dazu).
+4. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
 Keine Zugangsdaten (WLAN, Tokens, Passwörter) in Dateien im Repo – auch nicht in ignorierten.
