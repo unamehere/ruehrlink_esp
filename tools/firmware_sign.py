@@ -57,6 +57,28 @@ def write_pubkey(key: ec.EllipticCurvePrivateKey) -> None:
     print(f"öffentlicher Schlüssel → {PUBKEY_H.relative_to(REPO)}")
 
 
+def image_version(image: bytes) -> str:
+    """Version aus esp_app_desc_t im Image (nach Image- und Segment-Header, Magic 0xABCD5432)."""
+    if int.from_bytes(image[32:36], "little") != 0xABCD5432:
+        sys.exit("Kein ESP-App-Image (esp_app_desc fehlt)")
+    return image[48:80].split(bytes(1))[0].decode()
+
+
+def check_version(image: bytes) -> str:
+    """Build muss zur VERSION-Datei passen – sonst ist er veraltet (pio hat nicht neu konfiguriert)."""
+    want = (REPO / "VERSION").read_text().strip()
+    got = image_version(image)
+    if got != want:
+        sys.exit(f"Build hat Version {got}, VERSION sagt {want} – bitte neu bauen")
+    return want
+
+
+def sign_image(key: ec.EllipticCurvePrivateKey, image: bytes) -> bytes:
+    """ECDSA P-256 über SHA-256 des Images, als r||s (64 Byte) – so prüft es die Brücke."""
+    r, s = decode_dss_signature(key.sign(image, ec.ECDSA(hashes.SHA256())))
+    return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+
 def cmd_new_key(_):
     p = key_path()
     if p.exists():
@@ -76,10 +98,8 @@ def cmd_pubkey(_):
 def cmd_sign(a):
     key = load_key()
     image = Path(a.bin).read_bytes()
-    version = (REPO / "VERSION").read_text().strip()
-    der = key.sign(image, ec.ECDSA(hashes.SHA256()))
-    r, s = decode_dss_signature(der)
-    sig = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+    version = check_version(image)
+    sig = sign_image(key, image)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     name = f"bruecke-{version}.bin"
