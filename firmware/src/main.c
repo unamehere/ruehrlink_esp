@@ -1,4 +1,4 @@
-// Freikoch Brücke – Einstiegspunkt
+// Rührlink – Einstiegspunkt
 //
 // main.c verdrahtet nur die Module (components/*) und enthält keine eigene Logik.
 // Modulübersicht: docs/architektur.md
@@ -23,7 +23,7 @@
 #include "storage.h"
 #include "update.h"
 
-static const char *TAG = "freikoch";
+static const char *TAG = "ruehrlink";
 
 static void init_nvs(void)
 {
@@ -52,7 +52,7 @@ static void storage_smoke_test(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Freikoch Bruecke startet");
+    ESP_LOGI(TAG, "Ruehrlink startet");
     init_nvs();
     update_init();
     factory_check_power_cycles();

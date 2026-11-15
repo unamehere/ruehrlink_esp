@@ -43,7 +43,7 @@ def idf_python() -> str:
 def ask() -> dict:
     v = {"home_ssid": input("Heim-WLAN SSID: ").strip()}
     v["home_pass"] = getpass.getpass("Heim-WLAN Passwort: ")
-    v["ap_ssid"] = input("Maschinen-WLAN SSID ueberschreiben (leer = Freikoch-XXXX): ").strip()
+    v["ap_ssid"] = input("Maschinen-WLAN SSID ueberschreiben (leer = Ruehrlink-XXXX): ").strip()
     if v["ap_ssid"]:
         v["ap_pass"] = getpass.getpass("Maschinen-WLAN Passwort: ")
     return v

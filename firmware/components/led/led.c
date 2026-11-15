@@ -62,7 +62,7 @@ static void led_task(void *arg)
 void led_init(void)
 {
     const led_strip_config_t cfg = {
-        .strip_gpio_num = CONFIG_FK_LED_GPIO,
+        .strip_gpio_num = CONFIG_RL_LED_GPIO,
         .max_leds = 1,
     };
     const led_strip_rmt_config_t rmt = {.resolution_hz = 10 * 1000 * 1000};

@@ -243,7 +243,7 @@ static esp_err_t h_info(httpd_req_t *req)
     if (!authorized(req)) return ESP_OK;
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", net_device_id());
-    cJSON_AddStringToObject(o, "name", "Freikoch Brücke");
+    cJSON_AddStringToObject(o, "name", "Rührlink");
     cJSON_AddStringToObject(o, "fw", esp_app_get_description()->version);
     cJSON_AddNumberToObject(o, "api", 1);
 

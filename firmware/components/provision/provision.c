@@ -26,8 +26,8 @@ static const char *TAG = "provision";
 #define WINDOW_US     (10 * 60 * 1000000LL)  // Bluetooth nach dem Einschalten (Heim-WLAN schon eingerichtet)
 #define POP_LEN       10
 #define MAX_SCAN      15
-#define SCAN_PAGE     5     // Netze pro fk-scan-Antwort (BLE-Grenze 512 Byte)
-#define SRP_USER      "freikoch"
+#define SCAN_PAGE     5     // Netze pro rl-scan-Antwort (BLE-Grenze 512 Byte)
+#define SRP_USER      "ruehrlink"
 #define SALT_LEN      16
 
 // Nur die verschlüsselte Sitzung (Security 2, SRP6a) kommt vom ESP-IDF-Paket (SESSION_ONLY-Modus):
@@ -44,24 +44,31 @@ static bool s_running;
 
 // ---------------------------------------------------------------------------
 // Einrichtungs-Code (Proof of Possession), pro Gerät einmal erzeugt. Für Security 2 speichern wir
-// zusätzlich Salt und Verifier (SRP6a, Benutzer "freikoch") – die Berechnung dauert einige Sekunden.
+// zusätzlich Salt und Verifier (SRP6a, Benutzer "ruehrlink") – die Berechnung dauert einige Sekunden.
 
 static esp_err_t load_credentials(void)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open("prov", NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
-    size_t len = sizeof(s_pop), slen = SALT_LEN, vlen = 0;
-    bool have = nvs_get_str(h, "pop", s_pop, &len) == ESP_OK &&
+    size_t len = sizeof(s_pop), slen = SALT_LEN, vlen = 0, ulen = 0;
+    bool have_pop = nvs_get_str(h, "pop", s_pop, &len) == ESP_OK;
+    // Verifier gilt nur für den Benutzernamen, mit dem er berechnet wurde. Bis 0.2 hieß er "freikoch"
+    // (ohne Eintrag "user") – dann mit demselben Einrichtungs-Code neu berechnen, das Etikett bleibt gültig.
+    char user[16] = "";
+    if (nvs_get_str(h, "user", NULL, &ulen) == ESP_OK && ulen <= sizeof(user)) nvs_get_str(h, "user", user, &ulen);
+    bool have = have_pop && strcmp(user, SRP_USER) == 0 &&
                 nvs_get_blob(h, "salt", s_salt, &slen) == ESP_OK &&
                 nvs_get_blob(h, "verifier", NULL, &vlen) == ESP_OK && vlen > 0;
     if (have) {
         s_verifier = malloc(vlen);
         err = s_verifier ? nvs_get_blob(h, "verifier", s_verifier, &vlen) : ESP_ERR_NO_MEM;
     } else {
-        static const char a[] = "abcdefghjkmnpqrstuvwxyz23456789";
-        for (int i = 0; i < POP_LEN; i++) s_pop[i] = a[esp_random() % (sizeof(a) - 1)];
-        s_pop[POP_LEN] = '\0';
+        if (!have_pop) {
+            static const char a[] = "abcdefghjkmnpqrstuvwxyz23456789";
+            for (int i = 0; i < POP_LEN; i++) s_pop[i] = a[esp_random() % (sizeof(a) - 1)];
+            s_pop[POP_LEN] = 0;
+        }
         char *salt = NULL;
         int vl = 0;
         ESP_LOGI(TAG, "erzeuge Einrichtungs-Schluessel (einmalig) ...");
@@ -71,6 +78,7 @@ static esp_err_t load_credentials(void)
             free(salt);
             vlen = vl;
             nvs_set_str(h, "pop", s_pop);
+            nvs_set_str(h, "user", SRP_USER);
             nvs_set_blob(h, "salt", s_salt, SALT_LEN);
             nvs_set_blob(h, "verifier", s_verifier, vlen);
             nvs_commit(h);
@@ -99,11 +107,11 @@ static esp_err_t ep_info(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t
 {
     char ssid[33], host[40];
     net_home_ssid(ssid, sizeof(ssid));
-    snprintf(host, sizeof(host), "freikoch-%c%c%c%c.local", net_device_id()[0] | 0x20, net_device_id()[1] | 0x20,
+    snprintf(host, sizeof(host), "ruehrlink-%c%c%c%c.local", net_device_id()[0] | 0x20, net_device_id()[1] | 0x20,
              net_device_id()[2] | 0x20, net_device_id()[3] | 0x20);
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", net_device_id());
-    cJSON_AddStringToObject(o, "name", "Freikoch Brücke");
+    cJSON_AddStringToObject(o, "name", "Rührlink");
     cJSON_AddStringToObject(o, "fw", esp_app_get_description()->version);
     cJSON_AddStringToObject(o, "host", host);
     cJSON *home = cJSON_AddObjectToObject(o, "home");
@@ -117,7 +125,7 @@ static esp_err_t ep_info(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t
 }
 
 // WLAN-Suche im Hintergrund: Eine blockierende Suche (2–3 s) im Bluetooth-Handler legt den
-// BLE-Host lahm, das Handy bricht dann die Verbindung ab. fk-scan antwortet deshalb sofort mit
+// BLE-Host lahm, das Handy bricht dann die Verbindung ab. rl-scan antwortet deshalb sofort mit
 // {"scanning":true|false,"networks":[…]} aus dem Zwischenspeicher; die App fragt nach.
 static SemaphoreHandle_t s_scan_lock;
 static char *s_scan_json;           // zuletzt gefundene Netze als JSON-Array
@@ -142,7 +150,7 @@ static void on_scan_done(void *arg, esp_event_base_t base, int32_t id, void *dat
         int added = 0;
         for (int i = 0; i < n && added < MAX_SCAN; i++) {  // nach Signal sortiert; doppelte SSIDs weglassen
             const char *ss = (const char *)r[i].ssid;
-            if (!ss[0] || strncmp(ss, "Freikoch-", 9) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
+            if (!ss[0] || strncmp(ss, "Ruehrlink-", 10) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
             bool dup = false;
             for (int j = 0; j < i && !dup; j++) dup = strcmp(ss, (const char *)r[j].ssid) == 0;
             if (dup) continue;
@@ -207,7 +215,7 @@ static esp_err_t ep_wifi(uint32_t sid, const uint8_t *in, ssize_t inlen, uint8_t
     }
     cJSON_Delete(b);
     cJSON *o = cJSON_CreateObject();
-    cJSON_AddBoolToObject(o, "ok", err == ESP_OK);  // Ergebnis der Verbindung: fk-info abfragen
+    cJSON_AddBoolToObject(o, "ok", err == ESP_OK);  // Ergebnis der Verbindung: rl-info abfragen
     return reply(o, out, outlen);
 }
 
@@ -252,7 +260,7 @@ esp_err_t provision_start(void)
         ESP_LOGE(TAG, "Schluessel: %s", esp_err_to_name(err));
         return err;
     }
-    snprintf(s_name, sizeof(s_name), "Freikoch-%s", net_device_id());
+    snprintf(s_name, sizeof(s_name), "Ruehrlink-%s", net_device_id());
 
     network_prov_mgr_config_t cfg = {
         .scheme = network_prov_scheme_ble,
@@ -264,7 +272,7 @@ esp_err_t provision_start(void)
         ESP_LOGE(TAG, "init: %s", esp_err_to_name(err));
         return err;
     }
-    const char *eps[] = {"fk-info", "fk-scan", "fk-wifi", "fk-token"};
+    const char *eps[] = {"rl-info", "rl-scan", "rl-wifi", "rl-token"};
     for (int i = 0; i < 4; i++) network_prov_mgr_endpoint_create(eps[i]);
 
     esp_event_handler_register(NETWORK_PROV_EVENT, NETWORK_PROV_END, on_prov_event, NULL);
@@ -274,10 +282,10 @@ esp_err_t provision_start(void)
         network_prov_mgr_deinit();
         return err;
     }
-    network_prov_mgr_endpoint_register("fk-info", ep_info, NULL);
-    network_prov_mgr_endpoint_register("fk-scan", ep_scan, NULL);
-    network_prov_mgr_endpoint_register("fk-wifi", ep_wifi, NULL);
-    network_prov_mgr_endpoint_register("fk-token", ep_token, NULL);
+    network_prov_mgr_endpoint_register("rl-info", ep_info, NULL);
+    network_prov_mgr_endpoint_register("rl-scan", ep_scan, NULL);
+    network_prov_mgr_endpoint_register("rl-wifi", ep_wifi, NULL);
+    network_prov_mgr_endpoint_register("rl-token", ep_token, NULL);
     s_running = true;
 
     s_scan_lock = xSemaphoreCreateMutex();
@@ -290,7 +298,7 @@ esp_err_t provision_start(void)
     if (!net_home_configured()) led_signal(LED_SETUP);
 
     ESP_LOGI(TAG, "Bluetooth-Einrichtung aktiv als %s", s_name);
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
     // Inhalt des QR-Codes auf dem Etikett (nur Entwicklermodus ausgeben)
     ESP_LOGI(TAG, "QR: {\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\",\"security\":2,\"username\":\"" SRP_USER "\"}", s_name, s_pop);
 #endif

@@ -11,9 +11,9 @@ Braucht das Paket `cryptography` – am einfachsten mit dem Python von ESP-IDF/P
     $PY tools/firmware_sign.py pubkey
 
     # nach dem Build: Image + manifest.json für die App erzeugen
-    $PY tools/firmware_sign.py sign --out ../freikoch_app/assets/firmware
+    $PY tools/firmware_sign.py sign --out ../ruehrlink_app/assets/firmware
 
-Privater Schlüssel: Umgebungsvariable FREIKOCH_SIGNING_KEY oder ~/.freikoch/firmware-signing-key.pem.
+Privater Schlüssel: Umgebungsvariable RUEHRLINK_SIGNING_KEY oder ~/.ruehrlink/firmware-signing-key.pem.
 Wer ihn verliert, kann ausgelieferte Brücken nur noch per USB aktualisieren – also sichern!
 """
 import argparse
@@ -34,14 +34,14 @@ API_VERSION = 1  # wie "api" in GET /api/v1/info
 
 
 def key_path() -> Path:
-    env = os.environ.get("FREIKOCH_SIGNING_KEY")
-    return Path(env) if env else Path.home() / ".freikoch" / "firmware-signing-key.pem"
+    env = os.environ.get("RUEHRLINK_SIGNING_KEY")
+    return Path(env) if env else Path.home() / ".ruehrlink" / "firmware-signing-key.pem"
 
 
 def load_key() -> ec.EllipticCurvePrivateKey:
     p = key_path()
     if not p.exists():
-        sys.exit(f"Kein privater Schlüssel unter {p} (erst 'new-key' oder FREIKOCH_SIGNING_KEY setzen)")
+        sys.exit(f"Kein privater Schlüssel unter {p} (erst 'new-key' oder RUEHRLINK_SIGNING_KEY setzen)")
     return serialization.load_pem_private_key(p.read_bytes(), password=None)
 
 

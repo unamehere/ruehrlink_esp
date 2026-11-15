@@ -20,7 +20,7 @@ static const char *TAG = "storage";
 // ---------------------------------------------------------------------------
 // Backends – nur dieser Abschnitt unterscheidet Flash und SD.
 
-#if CONFIG_FK_STORAGE_FLASH
+#if CONFIG_RL_STORAGE_FLASH
 #include "wear_levelling.h"
 
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
@@ -38,7 +38,7 @@ static esp_err_t backend_mount(void)
 
 const char *storage_backend(void) { return "flash"; }
 
-#elif CONFIG_FK_STORAGE_SD
+#elif CONFIG_RL_STORAGE_SD
 
 static esp_err_t backend_mount(void)
 {

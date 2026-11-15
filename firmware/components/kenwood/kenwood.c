@@ -39,7 +39,7 @@ extern const uint8_t setup_cert_end[] asm("_binary_setup_server_pem_end");
 // Stufen in der Reihenfolge des Drehknopfs: Rührintervalle/Puls ← Aus → Dauerstufen.
 // `v` = Wert, der an die Maschine geht; Labels wie am Display.
 static const appliance_speed_t s_speeds[] = {
-#if CONFIG_FK_SPEED_TEST
+#if CONFIG_RL_SPEED_TEST
     // Testmodus: rohe Werte, um die Zuordnung am Display abzulesen (docs/testplan.md, Abschnitt 1)
     {0, "0", APPLIANCE_SPEED_OFF}, {1, "1", APPLIANCE_SPEED_CONTINUOUS}, {2, "2", APPLIANCE_SPEED_CONTINUOUS},
     {3, "3", APPLIANCE_SPEED_CONTINUOUS}, {4, "4", APPLIANCE_SPEED_CONTINUOUS}, {5, "5", APPLIANCE_SPEED_CONTINUOUS},
@@ -273,13 +273,13 @@ static void onboard_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(1000));  // 202 an die App rausgehen lassen, bevor das Heim-WLAN getrennt wird
     appliance_report_onboard(APPLIANCE_ONBOARD_SEARCHING);
     led_signal(LED_SETUP);
-    net_ap_use_default();  // Maschine immer auf das reguläre "Freikoch-XXXX" koppeln
+    net_ap_use_default();  // Maschine immer auf das reguläre "Ruehrlink-XXXX" koppeln
 
     esp_err_t err = net_temp_join(SETUP_PREFIX, ssid, sizeof(ssid), 20);
     if (err == ESP_OK) {
         err = https_setup("/mac", HTTP_METHOD_GET, NULL);  // wie die Original-App; prüft zugleich das Zertifikat
         if (err != ESP_OK) {
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
             // Diagnose: anderes Zertifikat? Nur ins serielle Log, wird NICHT übernommen.
             setup_cert_capture("192.168.4.1");
 #endif

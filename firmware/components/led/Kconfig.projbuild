@@ -1,6 +1,6 @@
-menu "Freikoch: Status-LED"
+menu "Ruehrlink: Status-LED"
 
-config FK_LED_GPIO
+config RL_LED_GPIO
     int "GPIO der RGB-Status-LED (WS2812)"
     default 48
     help
