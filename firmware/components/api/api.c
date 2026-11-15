@@ -1,6 +1,7 @@
 #include "api.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -186,8 +187,11 @@ static void on_appliance_event(void *arg, esp_event_base_t base, int32_t id, voi
         break;
     }
     case APPLIANCE_EVENT_WEIGHT: {
+        const appliance_weight_t *w = data;
         cJSON *d = cJSON_CreateObject();
-        cJSON_AddNumberToObject(d, "g", *(float *)data);
+        // auf 0,1 g runden – mehr kann die Waage nicht, und die Nachricht bleibt kurz
+        cJSON_AddNumberToObject(d, "g", roundf(w->net * 10) / 10);
+        cJSON_AddNumberToObject(d, "gross", roundf(w->gross * 10) / 10);
         broadcast("weight", d);
         break;
     }
@@ -306,6 +310,46 @@ static esp_err_t h_program(httpd_req_t *req)
     if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "not_connected");
     if (err != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(err));
     return send_json(req, "202 Accepted", cJSON_CreateObject());
+}
+
+// Waage: Die App meldet alle ~10 s, dass sie die Waage anzeigt (Lease); ohne Meldung schaltet die Brücke
+// sie nach Ablauf ab (eigene TLS-Verbindung zur Maschine kostet RAM).
+#define SCALE_WATCH_DEFAULT_S 30
+#define SCALE_WATCH_MAX_S     300
+
+static esp_err_t h_scale_watch(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    uint32_t s = SCALE_WATCH_DEFAULT_S;
+    char buf[64];
+    int n = req->content_len > 0 && req->content_len < sizeof(buf) ? httpd_req_recv(req, buf, req->content_len) : 0;
+    if (n > 0) {
+        buf[n] = '\0';
+        cJSON *j = cJSON_Parse(buf);
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "seconds");
+        if (cJSON_IsNumber(v) && v->valuedouble >= 1) {
+            s = v->valuedouble > SCALE_WATCH_MAX_S ? SCALE_WATCH_MAX_S : (uint32_t)v->valuedouble;
+        }
+        cJSON_Delete(j);
+    }
+    esp_err_t err = appliance_scale_watch(s);
+    if (err == ESP_ERR_NOT_SUPPORTED) return send_error(req, "501 Not Implemented", "no_scale");
+    if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "not_connected");
+    if (err != ESP_OK) return send_error(req, "503 Service Unavailable", "busy");
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "seconds", s);
+    return send_json(req, "200 OK", o);
+}
+
+static esp_err_t h_scale_tare(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    float tare = 0;
+    if (appliance_scale_tare(&tare) != ESP_OK) return send_error(req, "409 Conflict", "no_weight");
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "g", 0);
+    cJSON_AddNumberToObject(o, "tare", roundf(tare * 10) / 10);
+    return send_json(req, "200 OK", o);
 }
 
 static esp_err_t h_stop(httpd_req_t *req)
@@ -578,7 +622,7 @@ esp_err_t api_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_open_sockets = MAX_CLIENTS - 1;
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 16;
+    cfg.max_uri_handlers = 32;  // Platz für Rezepte/Fotos
     cfg.stack_size = 8192;  // Signaturprüfung beim Update
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
@@ -590,6 +634,8 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/state", .method = HTTP_GET, .handler = h_state},
         {.uri = "/api/v1/machine/program", .method = HTTP_POST, .handler = h_program},
         {.uri = "/api/v1/machine/stop", .method = HTTP_POST, .handler = h_stop},
+        {.uri = "/api/v1/scale/watch", .method = HTTP_POST, .handler = h_scale_watch},
+        {.uri = "/api/v1/scale/tare", .method = HTTP_POST, .handler = h_scale_tare},
         {.uri = "/api/v1/machine/onboard", .method = HTTP_POST, .handler = h_onboard},
         {.uri = "/api/v1/sequence/start", .method = HTTP_POST, .handler = h_seq_start},
         {.uri = "/api/v1/sequence/abort", .method = HTTP_POST, .handler = h_seq_abort},
