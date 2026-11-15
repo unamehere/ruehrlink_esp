@@ -24,10 +24,10 @@
 static const char *TAG = "kenwood";
 
 // Protokoll siehe docs/architektur.md – verifiziert mit dem MicroPython-Prototyp an einer KCL95.
-#define PING_INTERVAL_US  (5 * 1000000LL)    // Lebenszeichen; ohne Ping trennt die Maschine nach ~60 s
-#define RX_TIMEOUT_US     (15 * 1000000LL)   // so lange nichts gehört (Pong zählt) → Verbindung gilt als tot
+#define PING_INTERVAL_US  (2 * 1000000LL)    // Lebenszeichen; ohne Ping trennt die Maschine nach ~60 s
+#define RX_TIMEOUT_US     (6 * 1000000LL)    // so lange nichts gehört (Pong zählt) → Verbindung gilt als tot
 #define RX_TIMEOUT_NOPONG_US (70 * 1000000LL)  // falls die Maschine auf Pings nicht antwortet
-#define PROBE_US          (3 * 1000000LL)    // nach fehlender Bestätigung: so lange auf Antwort warten
+#define PROBE_US          (2 * 1000000LL)    // nach fehlender Bestätigung: so lange auf Antwort warten
 #define ACK_TIMEOUT_US    (5 * 1000000LL)
 #define MAX_FRAME_LEN     4096
 #define LID_SCALE_S       120                // Waage nach dem Hochklappen des Kopfs so lange holen
@@ -178,6 +178,13 @@ static void probe_work(void *arg)
     }
     esp_timer_stop(s_probe_timer);
     esp_timer_start_once(s_probe_timer, PROBE_US);
+}
+
+// Die Waage ist plötzlich still (z. B. Maschine ausgeschaltet): gleich nachfragen statt auf den
+// nächsten regulären Ping zu warten.
+void kenwood_check_alive(void)
+{
+    if (s_server) httpd_queue_work(s_server, probe_work, NULL);
 }
 
 static void ack_timeout_cb(void *arg)

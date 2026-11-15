@@ -11,3 +11,6 @@ esp_err_t kenwood_scale_watch(uint32_t seconds);
 
 // Gemerktes Zertifikat der Waage vergessen (neue Maschine gekoppelt).
 void kenwood_scale_forget(void);
+
+// Verbindung zur Maschine sofort prüfen (Ping, ohne Antwort binnen 2 s getrennt) – kenwood.c
+void kenwood_check_alive(void);
