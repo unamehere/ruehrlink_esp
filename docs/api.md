@@ -65,6 +65,8 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   "name": "Rührlink",
   "fw": "0.1.0",
   "api": 1,
+  "apiSupported": [1],
+  "features": ["scale", "scale.tare", "recipes", "media", "sequence", "programs", "ota"],
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
   "appliance": {
     "paired": true,
@@ -88,6 +90,11 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   }
 }
 ```
+
+- `api`: Hauptversion dieser API. `apiSupported`: alle Hauptversionen, die die Brücke gerade spricht.
+- `features`: was diese Firmware kann. Die App schaltet Funktionen danach frei; neue Fähigkeiten kommen nur
+  hinzu, innerhalb eines `api` verschwindet keine. Regeln siehe [`updates.md`](updates.md#versionen-und-kompatibilität).
+  *(TODO: in der Firmware noch nicht umgesetzt.)*
 
 ### Einzelheiten
 
