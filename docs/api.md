@@ -115,6 +115,11 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   Fehler: `400 {"error":"empty|too_many|range|hot_speed|total_time|first_step","step":<index ab 0>}`,
   `404 {"error":"program"}`, `409 {"error":"not_connected|busy|not_ready"}` (`not_ready` = Schüssel fehlt
   oder Kopf offen).
+- `POST /api/v1/ota` – Body = Firmware-Image (`application/octet-stream`, mit `Content-Length`), Header
+  `X-Sha256: <hex>` und `X-Signature: <hex, 64 Byte r||s>` aus dem `manifest.json` der App. Antwort `202`, nach 1 s
+  Neustart in die neue Firmware. Die Brücke ist während des Uploads (ca. 30 s) für andere Anfragen blockiert –
+  den Fortschritt zählt die App selbst (gesendete Bytes). Fehler: `400 {"error":"header|upload|size|sha256|signature|image"}`,
+  `409 {"error":"busy"}` (Programm oder Maschine läuft), `413 {"error":"size"}`. Danach `GET /info` → `fw` prüfen.
 - `POST /api/v1/sequence/abort` – Antwort `202`; `409 {"error":"idle"}`, wenn nichts läuft.
 - Während ein Programm läuft, antworten `POST /machine/program` mit `409 {"error":"busy"}`;
   `POST /machine/stop` bricht das Programm ab (wie `/sequence/abort`).

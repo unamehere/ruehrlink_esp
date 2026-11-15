@@ -21,6 +21,7 @@
 #include "provision.h"
 #include "sequencer.h"
 #include "storage.h"
+#include "update.h"
 
 static const char *TAG = "freikoch";
 
@@ -53,6 +54,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Freikoch Bruecke startet");
     init_nvs();
+    update_init();
     factory_check_power_cycles();
     led_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
