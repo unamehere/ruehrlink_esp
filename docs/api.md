@@ -1,12 +1,12 @@
-# Lokale App-API der Freikoch Brücke (v1, Entwurf)
+# Lokale App-API des Rührlink (v1, Entwurf)
 
 Die API ist nur im Heim-WLAN erreichbar. Sie ist die einzige Schnittstelle zwischen
-Brücke und App und wird in beiden Repos (`freikoch_esp`, `freikoch_app`) gegen diese Datei
+Brücke und App und wird in beiden Repos (`ruehrlink_esp`, `ruehrlink_app`) gegen diese Datei
 entwickelt. Änderungen hier zuerst, dann im Code.
 
 ## Finden
 
-- mDNS-Dienst `_freikoch._tcp`, Port 80
+- mDNS-Dienst `_ruehrlink._tcp`, Port 80
 - TXT-Records: `id=<geräte-id>`, `fw=<version>`, `api=1`, `name=<anzeigename>`
 
 ## Koppeln & Anmelden
@@ -60,7 +60,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 ```json
 {
   "id": "98C0",
-  "name": "Freikoch Brücke",
+  "name": "Rührlink",
   "fw": "0.1.0",
   "api": 1,
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},

@@ -1,8 +1,8 @@
 // net – WLAN der Brücke
 //
 // Zwei Schnittstellen gleichzeitig auf einem Funkteil (gleicher Kanal):
-//   AP   "Freikoch-XXXX" nur für die Maschine, IP 8.8.8.8, DNS beantwortet alles mit 8.8.8.8
-//   STA  Heim-WLAN für die App, Hostname freikoch-xxxx, mDNS-Dienst _freikoch._tcp
+//   AP   "Ruehrlink-XXXX" nur für die Maschine, IP 8.8.8.8, DNS beantwortet alles mit 8.8.8.8
+//   STA  Heim-WLAN für die App, Hostname ruehrlink-xxxx, mDNS-Dienst _ruehrlink._tcp
 //
 // Zugangsdaten fürs Heim-WLAN setzt `provision` (Bluetooth). Ohne Zugangsdaten läuft nur der AP.
 #pragma once
@@ -41,7 +41,7 @@ void net_home_pause(uint32_t seconds);
 esp_err_t net_temp_join(const char *prefix, char *ssid_out, size_t ssid_len, uint32_t timeout_s);
 // Zurück ins Heim-WLAN, vorher `hold_s` Sekunden Kanal halten (Gerät verbindet sich mit dem AP).
 void net_temp_leave(uint32_t hold_s);
-// Entwickler-Überschreibung des Maschinen-WLANs entfernen → wieder "Freikoch-XXXX".
+// Entwickler-Überschreibung des Maschinen-WLANs entfernen → wieder "Ruehrlink-XXXX".
 void net_ap_use_default(void);
 
 // Heim-WLAN und mDNS-Eintrag ergänzen, sobald bekannt (z. B. Firmware-Version).

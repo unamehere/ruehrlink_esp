@@ -1,19 +1,19 @@
-menu "Freikoch: Speicher"
+menu "Ruehrlink: Speicher"
 
-choice FK_STORAGE_BACKEND
+choice RL_STORAGE_BACKEND
     prompt "Speicher fuer Rezepte, Fotos, Programme"
-    default FK_STORAGE_FLASH
+    default RL_STORAGE_FLASH
     help
         Beide Varianten haengen dasselbe FAT-Dateisystem unter STORAGE_ROOT ein,
         der restliche Code merkt keinen Unterschied.
 
-config FK_STORAGE_FLASH
+config RL_STORAGE_FLASH
     bool "SD-Emulation im internen Flash (Entwicklung, ca. 10 MB)"
     help
         FAT mit Wear Leveling auf der Partition "storage".
         Nur fuer Entwicklung ohne microSD - vor der Beta auf SD umstellen!
 
-config FK_STORAGE_SD
+config RL_STORAGE_SD
     bool "microSD-Karte (Beta/Serie)"
     help
         Noch nicht implementiert. Pinbelegung folgt mit dem SD-Modul.

@@ -13,7 +13,7 @@
 
 #include "led.h"
 
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
 #include "driver/gpio.h"
 #endif
 
@@ -79,7 +79,7 @@ void auth_new_token(char *token_out, size_t len)
     snprintf(token_out, len, "%s", t);
 }
 
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
 // Entwicklermodus: BOOT-Taste des DevKits bestätigt eine offene Anfrage.
 static void button_task(void *arg)
 {
@@ -120,7 +120,7 @@ void auth_init(auth_request_cb_t on_request)
         nvs_close(h);
     }
     xTaskCreate(expiry_task, "pair_exp", 2048, NULL, 2, NULL);
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
     xTaskCreate(button_task, "pair_btn", 2560, NULL, 3, NULL);
 #endif
 }

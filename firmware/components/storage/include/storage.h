@@ -2,7 +2,7 @@
 //
 // Alles liegt als normale Dateien unter STORAGE_ROOT und wird mit fopen/fread/...
 // gelesen. Ob dahinter die microSD oder die SD-Emulation im Flash steckt, wird beim
-// Bauen gewählt (menuconfig "Freikoch: Speicher") und ist für den Rest unsichtbar.
+// Bauen gewählt (menuconfig "Ruehrlink: Speicher") und ist für den Rest unsichtbar.
 //
 // Einstellungen und Geheimnisse (WLAN, Token, AP-Passwort) gehören NICHT hierher,
 // sondern in NVS – die SD-Karte kann man herausnehmen und auslesen.

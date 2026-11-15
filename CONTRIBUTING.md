@@ -1,6 +1,6 @@
 # Arbeitsweise mit Git
 
-Gilt für alle Repos des Projekts (`freikoch_esp`, `freikoch_app`, `freikoch_hardware`). Stand 13.11.2026.
+Gilt für alle Repos des Projekts (`ruehrlink_esp`, `ruehrlink_app`, `ruehrlink_hardware`). Stand 13.11.2026.
 
 ## Branches
 
@@ -30,8 +30,8 @@ Typen: `feat` (Funktion) · `fix` (Fehler) · `docs` · `style` (Formatierung) �
 
 ## Release
 
-1. Testplan an der echten Maschine durchlaufen (`freikoch_esp/docs/testplan.md`), Ergebnis eintragen.
+1. Testplan an der echten Maschine durchlaufen (`ruehrlink_esp/docs/testplan.md`), Ergebnis eintragen.
 2. `develop` → `main` mergen, Tag `vX.Y.Z` setzen. App und Firmware teilen `MAJOR.MINOR`, der Patch zählt je Repo (siehe docs/updates.md).
-3. Fehler aus Tests kommen in die Fehlerliste (`Freikoch/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
+3. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
 Keine Zugangsdaten (WLAN, Tokens, Passwörter) in Dateien im Repo – auch nicht in ignorierten.
