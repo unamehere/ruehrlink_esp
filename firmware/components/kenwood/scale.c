@@ -267,6 +267,8 @@ static void session(uint32_t ip)
     int64_t last = esp_timer_get_time();
     bool first = true;
     while (buf) {
+        // Die Maschine sendet ohne Pause (~20/s) – das Ende der Lease hier prüfen, nicht nur bei Stille.
+        if (!needed()) break;
         uint8_t h[2];
         if (read_exact(tls, h, 2, &last) != 0) break;
         uint8_t op = h[0] & 0x0f;
