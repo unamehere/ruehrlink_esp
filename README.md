@@ -57,4 +57,11 @@ Frühe Entwicklung (MVP für die Beta, Dezember 2026).
 
 ## Lizenz
 
-Noch offen (Vorschlag: GPLv3). 
+Copyright (C) 2026 NMX Drive Systems GmbH
+
+Die Firmware ist freie Software: Sie dürfen sie unter den Bedingungen der
+[GNU General Public License, Version 3](LICENSE) weitergeben und/oder verändern.
+Sie wird ohne jede Gewährleistung bereitgestellt; Einzelheiten stehen in der Lizenz.
+
+Ausgenommen sind Bibliotheken Dritter (z. B. ESP-IDF) – für sie gelten ihre eigenen Lizenzen.
+Der Name „Rührlink“ und das Logo sind nicht Teil der Lizenz.

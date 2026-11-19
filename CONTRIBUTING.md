@@ -41,3 +41,10 @@ unter **Unveröffentlicht** (Neu / Geändert / Behoben, in Nutzersprache). Reine
 4. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
 Keine Zugangsdaten (WLAN, Tokens, Passwörter) in Dateien im Repo – auch nicht in ignorierten.
+
+## Beiträge und Lizenz
+
+Dieses Repo steht unter der GPLv3 (siehe `LICENSE`), Rechteinhaberin ist die NMX Drive Systems GmbH.
+Mit einem Beitrag (Pull Request, Patch) erklären Sie, dass Sie die Rechte daran haben, stellen ihn unter die GPLv3
+und räumen der NMX Drive Systems GmbH zusätzlich ein einfaches, unbefristetes Recht ein, ihn auch unter anderen
+Lizenzbedingungen zu nutzen und zu vertreiben (z. B. in App-Stores oder auf vorinstallierten Geräten).
