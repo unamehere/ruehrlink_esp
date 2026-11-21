@@ -8,6 +8,14 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+## 0.4.0 – 21.11.2026
+
+### Neu
+- Der Rührlink meldet der App, welche Funktionen er kann. App und Rührlink lassen sich dadurch unabhängig
+  voneinander aktualisieren.
+- Updates gibt es als eine einzige Datei `ruehrlink-<version>.rlfw` auf der GitHub-Release-Seite; die App
+  spielt sie auf.
+
 ## 0.3.3 – 15.11.2026
 
 ### Geändert
