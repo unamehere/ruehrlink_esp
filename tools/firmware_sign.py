@@ -10,8 +10,12 @@ Braucht das Paket `cryptography` – am einfachsten mit dem Python von ESP-IDF/P
     # öffentlichen Schlüssel erneut in die Firmware schreiben
     $PY tools/firmware_sign.py pubkey
 
-    # nach dem Build: Image + manifest.json für die App erzeugen
-    $PY tools/firmware_sign.py sign --out ../ruehrlink_app/assets/firmware
+    # nach dem Build: Update-Datei build/ruehrlink-<version>.rlfw (ZIP: manifest.json + Image)
+    $PY tools/firmware_sign.py pack --min-app 0.4.0 --notes "Waage verbindet schneller."
+    #   --channel beta, --security, --notes-file notizen.txt
+    # dieselbe Datei als eingebaute Firmware der App (ersetzt die alte)
+    $PY tools/firmware_sign.py pack --min-app 0.4.0 --notes-file notizen.txt \
+        --out ../ruehrlink_app/assets/firmware --replace
 
 Privater Schlüssel: Umgebungsvariable RUEHRLINK_SIGNING_KEY oder ~/.ruehrlink/firmware-signing-key.pem.
 Wer ihn verliert, kann ausgelieferte Brücken nur noch per USB aktualisieren – also sichern!
@@ -21,6 +25,7 @@ import hashlib
 import json
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -95,27 +100,38 @@ def cmd_pubkey(_):
     write_pubkey(load_key())
 
 
-def cmd_sign(a):
+def cmd_pack(a):
+    """Update-Datei ruehrlink-<version>.rlfw: ZIP mit manifest.json + Image (Aufbau: docs/updates.md)."""
     key = load_key()
     image = Path(a.bin).read_bytes()
     version = check_version(image)
-    sig = sign_image(key, image)
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
+    notes = Path(a.notes_file).read_text(encoding="utf-8").strip() if a.notes_file else (a.notes or "")
+    if not notes:
+        sys.exit("Bitte Änderungsnotizen angeben (--notes oder --notes-file) – die zeigt die App vor dem Update")
     name = f"ruehrlink-{version}.bin"
-    for old in [*out.glob("ruehrlink-*.bin"), *out.glob("bruecke-*.bin")]:  # die App trägt genau eine Firmware
-        old.unlink()
-    (out / name).write_bytes(image)
     manifest = {
         "version": version,
         "api": API_VERSION,
+        "minApp": a.min_app,
+        "channel": a.channel,
+        "security": a.security,
+        "notes": notes,
         "file": name,
         "size": len(image),
         "sha256": hashlib.sha256(image).hexdigest(),
-        "sig": sig.hex(),
+        "sig": sign_image(key, image).hex(),
     }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"{name} ({len(image)} Byte) + manifest.json → {out}")
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    if a.replace:  # z. B. assets/firmware der App: dort liegt genau eine Firmware
+        for old in [*out.glob("ruehrlink-*.rlfw"), *out.glob("ruehrlink-*.bin"), *out.glob("manifest.json")]:
+            old.unlink()
+    target = out / f"ruehrlink-{version}.rlfw"
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+        z.writestr(name, image)
+    print(f"{target.name} ({len(image)} Byte Image, {manifest['channel']}"
+          f"{', Sicherheitsupdate' if a.security else ''}, ab App {a.min_app}) → {out}")
 
 
 def main():
@@ -123,11 +139,18 @@ def main():
     sub = ap.add_subparsers(required=True)
     sub.add_parser("new-key").set_defaults(f=cmd_new_key)
     sub.add_parser("pubkey").set_defaults(f=cmd_pubkey)
-    s = sub.add_parser("sign")
+    s = sub.add_parser("pack", help="Update-Datei .rlfw erzeugen")
     s.add_argument("--bin", default=str(DEFAULT_BIN))
-    s.add_argument("--out", required=True)
-    s.set_defaults(f=cmd_sign)
+    s.add_argument("--out", default=str(REPO / "build"))
+    s.add_argument("--min-app", required=True, help="älteste App, die mit dieser Firmware zurechtkommt, z. B. 0.4.0")
+    s.add_argument("--channel", choices=["stable", "beta"], default="stable")
+    s.add_argument("--security", action="store_true", help="Sicherheitsupdate (App weist deutlicher darauf hin)")
+    s.add_argument("--notes", help="Änderungsnotizen für Nutzer (kurz)")
+    s.add_argument("--notes-file", help="Änderungsnotizen aus Datei (UTF-8)")
+    s.add_argument("--replace", action="store_true", help="ältere Firmware im Zielordner löschen (App-Assets)")
+    s.set_defaults(f=cmd_pack)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     a = ap.parse_args()
     a.f(a)
 
