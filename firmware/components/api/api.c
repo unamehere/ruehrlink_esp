@@ -33,6 +33,28 @@ static const char *TAG = "api";
 #define MAX_BODY    4096   // Programme mit bis zu 20 Schritten
 #define MAX_CLIENTS 8
 
+// App-API (docs/api.md): innerhalb einer Hauptversion nur additive Änderungen.
+// Bruch → API_VERSION + 1 und die alte Version noch mindestens ein Jahr in API_SUPPORTED mitführen.
+#define API_VERSION 1
+static const int API_SUPPORTED[] = {1};
+
+// Was diese Firmware kann; die App schaltet Funktionen danach frei. Einträge nur hinzufügen,
+// innerhalb einer API_VERSION nie entfernen oder umbenennen.
+static const char *const FEATURES[] = {
+    "machine",          // POST /machine/program, /machine/stop
+    "machine.onboard",  // POST /machine/onboard
+    "scale",            // POST /scale/watch, WS weight
+    "scale.tare",       // POST /scale/tare
+    "sequence",         // /sequence/start|abort, GET /sequence, WS seq
+    "programs",         // GET /programs
+    "recipes",          // /recipes, WS recipes
+    "media",            // /media
+    "time",             // POST /time
+    "pair",             // POST /pair, /pair/approve, WS pairRequest
+    "reset",            // POST /reset
+    "ota",              // POST /ota
+};
+
 static httpd_handle_t s_server;
 
 // ---------------------------------------------------------------------------
@@ -253,7 +275,15 @@ static esp_err_t h_info(httpd_req_t *req)
     cJSON_AddStringToObject(o, "id", net_device_id());
     cJSON_AddStringToObject(o, "name", "Rührlink");
     cJSON_AddStringToObject(o, "fw", esp_app_get_description()->version);
-    cJSON_AddNumberToObject(o, "api", 1);
+    cJSON_AddNumberToObject(o, "api", API_VERSION);
+    cJSON *sup = cJSON_AddArrayToObject(o, "apiSupported");
+    for (size_t i = 0; i < sizeof(API_SUPPORTED) / sizeof(API_SUPPORTED[0]); i++) {
+        cJSON_AddItemToArray(sup, cJSON_CreateNumber(API_SUPPORTED[i]));
+    }
+    cJSON *feat = cJSON_AddArrayToObject(o, "features");
+    for (size_t i = 0; i < sizeof(FEATURES) / sizeof(FEATURES[0]); i++) {
+        cJSON_AddItemToArray(feat, cJSON_CreateString(FEATURES[i]));
+    }
 
     uint64_t total = 0, free_b = 0;
     cJSON *s = cJSON_AddObjectToObject(o, "storage");

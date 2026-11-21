@@ -34,7 +34,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 
 | Methode | Pfad | Zweck |
 |---|---|---|
-| GET | `/api/v1/info` | Gerät: id, name, fw, Maschine gekoppelt?, Speicher frei |
+| GET | `/api/v1/info` | Gerät: id, name, fw, api, Fähigkeiten, Maschine gekoppelt?, Speicher frei |
 | GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
@@ -66,7 +66,8 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   "fw": "0.1.0",
   "api": 1,
   "apiSupported": [1],
-  "features": ["scale", "scale.tare", "recipes", "media", "sequence", "programs", "ota"],
+  "features": ["machine", "machine.onboard", "scale", "scale.tare", "sequence", "programs",
+               "recipes", "media", "time", "pair", "reset", "ota"],
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
   "appliance": {
     "paired": true,
@@ -94,7 +95,24 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 - `api`: Hauptversion dieser API. `apiSupported`: alle Hauptversionen, die die Brücke gerade spricht.
 - `features`: was diese Firmware kann. Die App schaltet Funktionen danach frei; neue Fähigkeiten kommen nur
   hinzu, innerhalb eines `api` verschwindet keine. Regeln siehe [`updates.md`](updates.md#versionen-und-kompatibilität).
-  *(TODO: in der Firmware noch nicht umgesetzt.)*
+  Seit Firmware 0.4.0. Ältere Firmware (0.3.x) liefert `api: 1`, aber weder `apiSupported` noch `features` –
+  die App nimmt dann `[1]` und alle Fähigkeiten aus der Tabelle an, die mit „0.3“ markiert sind.
+  Fehlt `api` ganz, gilt `1`. Unbekannte Einträge ignoriert die App.
+
+| Fähigkeit | seit | bedeutet |
+|---|---|---|
+| `machine` | 0.3 | `POST /machine/program`, `/machine/stop` |
+| `machine.onboard` | 0.3 | `POST /machine/onboard` |
+| `scale` | 0.3 | `POST /scale/watch`, WS `weight` |
+| `scale.tare` | 0.3 | `POST /scale/tare` |
+| `sequence` | 0.3 | `/sequence/start`, `/sequence/abort`, `GET /sequence`, WS `seq` |
+| `programs` | 0.3 | `GET /programs` |
+| `recipes` | 0.3 | `/recipes`, WS `recipes` |
+| `media` | 0.3 | `/media` |
+| `time` | 0.3 | `POST /time` |
+| `pair` | 0.3 | `POST /pair`, `/pair/approve`, WS `pairRequest` |
+| `reset` | 0.3 | `POST /reset` |
+| `ota` | 0.3 | `POST /ota` |
 
 ### Einzelheiten
 
@@ -125,7 +143,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   `404 {"error":"program"}`, `409 {"error":"not_connected|busy|not_ready"}` (`not_ready` = Schüssel fehlt
   oder Kopf offen).
 - `POST /api/v1/ota` – Body = Firmware-Image (`application/octet-stream`, mit `Content-Length`), Header
-  `X-Sha256: <hex>` und `X-Signature: <hex, 64 Byte r||s>` aus dem `manifest.json` der App. Antwort `202`, nach 1 s
+  `X-Sha256: <hex>` und `X-Signature: <hex, 64 Byte r||s>` aus dem `manifest.json` der Update-Datei (`.rlfw`). Antwort `202`, nach 1 s
   Neustart in die neue Firmware. Die Brücke ist während des Uploads (ca. 30 s) für andere Anfragen blockiert –
   den Fortschritt zählt die App selbst (gesendete Bytes). Fehler: `400 {"error":"header|upload|size|sha256|signature|image"}`,
   `409 {"error":"busy"}` (Programm oder Maschine läuft), `413 {"error":"size"}`. Danach `GET /info` → `fw` prüfen.
