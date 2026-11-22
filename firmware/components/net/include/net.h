@@ -1,7 +1,7 @@
 // net – WLAN der Brücke
 //
 // Zwei Schnittstellen gleichzeitig auf einem Funkteil (gleicher Kanal):
-//   AP   "Ruehrlink-XXXX" nur für die Maschine, IP 8.8.8.8, DNS beantwortet alles mit 8.8.8.8
+//   AP   "Ruehrlink-XXXX" nur für die Maschine (Name beim ersten Start im NVS festgeschrieben, F18), IP 8.8.8.8, DNS beantwortet alles mit 8.8.8.8
 //   STA  Heim-WLAN für die App, Hostname ruehrlink-xxxx, mDNS-Dienst _ruehrlink._tcp
 //
 // Zugangsdaten fürs Heim-WLAN setzt `provision` (Bluetooth). Ohne Zugangsdaten läuft nur der AP.
@@ -43,8 +43,11 @@ void net_home_pause(uint32_t seconds);
 esp_err_t net_temp_join(const char *prefix, char *ssid_out, size_t ssid_len, uint32_t timeout_s);
 // Zurück ins Heim-WLAN, vorher `hold_s` Sekunden Kanal halten (Gerät verbindet sich mit dem AP).
 void net_temp_leave(uint32_t hold_s);
-// Entwickler-Überschreibung des Maschinen-WLANs entfernen → wieder "Ruehrlink-XXXX".
+// Entwickler-Überschreibung des Maschinen-WLANs entfernen → wieder der festgeschriebene Name.
 void net_ap_use_default(void);
+// Maschine neu koppeln: neues Passwort fürs Maschinen-WLAN (Name bleibt), verbundene Geräte trennen.
+// Die bisher gekoppelte Maschine kommt erst nach einer neuen Kopplung wieder herein.
+void net_ap_renew_password(void);
 
 // Heim-WLAN und mDNS-Eintrag ergänzen, sobald bekannt (z. B. Firmware-Version).
 void net_mdns_set_txt(const char *key, const char *value);

@@ -1,8 +1,8 @@
 // storage – Dateispeicher der Brücke (Rezepte, Fotos, Programme, Logs)
 //
 // Alles liegt als normale Dateien unter STORAGE_ROOT und wird mit fopen/fread/...
-// gelesen. Ob dahinter die microSD oder die SD-Emulation im Flash steckt, wird beim
-// Bauen gewählt (menuconfig "Ruehrlink: Speicher") und ist für den Rest unsichtbar.
+// gelesen. Beim Start wird die microSD (SPI, Pins in menuconfig "Ruehrlink: Speicher")
+// eingehängt; ohne lesbare Karte die SD-Emulation im Flash. Für den Rest unsichtbar.
 //
 // Einstellungen und Geheimnisse (WLAN, Token, AP-Passwort) gehören NICHT hierher,
 // sondern in NVS – die SD-Karte kann man herausnehmen und auslesen.
@@ -17,7 +17,7 @@
 // Dateisystem einhängen, bei Bedarf formatieren. Einmal beim Start aufrufen.
 esp_err_t storage_init(void);
 
-// "flash" (Emulation) oder "sd"
+// Was gerade eingehängt ist: "sd", "flash" (Rückfall/Emulation) oder "none".
 const char *storage_backend(void);
 
 esp_err_t storage_usage(uint64_t *total_bytes, uint64_t *free_bytes);

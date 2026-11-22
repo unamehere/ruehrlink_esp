@@ -153,7 +153,7 @@ static void on_scan_done(void *arg, esp_event_base_t base, int32_t id, void *dat
         int added = 0;
         for (int i = 0; i < n && added < MAX_SCAN; i++) {  // nach Signal sortiert; doppelte SSIDs weglassen
             const char *ss = (const char *)r[i].ssid;
-            if (!ss[0] || strncmp(ss, "Ruehrlink-", 10) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
+            if (!ss[0] || strncmp(ss, "Ruehrlink-", 10) == 0 || strcmp(ss, net_ap_ssid()) == 0 || strncmp(ss, "KENWOOD", 7) == 0) continue;
             bool dup = false;
             for (int j = 0; j < i && !dup; j++) dup = strcmp(ss, (const char *)r[j].ssid) == 0;
             if (dup) continue;

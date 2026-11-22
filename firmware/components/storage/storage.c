@@ -19,38 +19,250 @@ static const char *TAG = "storage";
 #define PATH_MAX_LEN 128
 
 // ---------------------------------------------------------------------------
-// Backends – nur dieser Abschnitt unterscheidet Flash und SD.
+// Backends – nur dieser Abschnitt unterscheidet SD und Flash.
+//
+// Reihenfolge beim Start: microSD (SPI) → falls keine/unlesbare Karte: SD-Emulation im Flash.
+// Liegen Daten im Flash und steckt eine leere Karte, werden sie einmal auf die Karte kopiert
+// (copy_flash_to_sd). Der Flash bleibt dabei unverändert – nur eine Markierung kommt dazu.
 
-#if CONFIG_RL_STORAGE_FLASH
+#define FLASH_PARTITION "storage"
+#define FLASH_MOUNT     "/flash"            // nur während des Kopierens eingehängt
+#define COPIED_MARK     "/.auf-sd-kopiert"  // im Flash: schon einmal auf eine Karte kopiert
+#define IMPORT_DIR      "/.flash-import"    // auf der Karte: Kopie läuft (nach Abbruch verworfen)
+
+static const char *s_backend = "none";
+
+#if CONFIG_RL_STORAGE_FLASH_FALLBACK
+#include "esp_partition.h"
 #include "wear_levelling.h"
 
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
 
-static esp_err_t backend_mount(void)
+static esp_err_t flash_mount(const char *base, bool format, wl_handle_t *wl)
 {
-    ESP_LOGW(TAG, "SD-Emulation im Flash aktiv (Entwicklung) - fuer die Beta auf microSD umstellen");
+    if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, FLASH_PARTITION)) {
+        return ESP_ERR_NOT_FOUND;
+    }
     const esp_vfs_fat_mount_config_t cfg = {
-        .format_if_mount_failed = true,
-        .max_files = 8,
+        .format_if_mount_failed = format,
+        .max_files = CONFIG_RL_STORAGE_MAX_FILES,
         .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
     };
-    return esp_vfs_fat_spiflash_mount_rw_wl(STORAGE_ROOT, "storage", &cfg, &s_wl);
+    return esp_vfs_fat_spiflash_mount_rw_wl(base, FLASH_PARTITION, &cfg, wl);
+}
+#endif
+
+#if CONFIG_RL_STORAGE_USE_SD
+#include "driver/gpio.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_common.h"
+#include "sdmmc_cmd.h"
+
+static sdmmc_card_t *s_card;
+
+#if CONFIG_RL_SD_FORMAT_IF_FAILED
+#define SD_FORMAT true
+#else
+#define SD_FORMAT false
+#endif
+
+static esp_err_t sd_mount(void)
+{
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI2_HOST;
+    host.max_freq_khz = CONFIG_RL_SD_FREQ_KHZ;
+    const spi_bus_config_t bus = {
+        .mosi_io_num = CONFIG_RL_SD_PIN_MOSI,
+        .miso_io_num = CONFIG_RL_SD_PIN_MISO,
+        .sclk_io_num = CONFIG_RL_SD_PIN_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,  // klein halten: DMA-Puffer liegen im internen RAM
+    };
+    esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus, SDSPI_DEFAULT_DMA);
+    if (err != ESP_OK) return err;
+    // Interne Pull-ups als Reserve – SD-Module haben meist eigene, die Platine hat 10 kΩ.
+    gpio_pullup_en(CONFIG_RL_SD_PIN_MISO);
+    gpio_pullup_en(CONFIG_RL_SD_PIN_CS);
+
+    sdspi_device_config_t dev = SDSPI_DEVICE_CONFIG_DEFAULT();
+    dev.gpio_cs = CONFIG_RL_SD_PIN_CS;
+    dev.host_id = SPI2_HOST;
+    const esp_vfs_fat_mount_config_t cfg = {
+        .format_if_mount_failed = SD_FORMAT,
+        .max_files = CONFIG_RL_STORAGE_MAX_FILES,
+        .allocation_unit_size = 16 * 1024,
+    };
+    err = esp_vfs_fat_sdspi_mount(STORAGE_ROOT, &host, &dev, &cfg, &s_card);
+    if (err != ESP_OK) {
+        spi_bus_free(SPI2_HOST);  // Pins wieder frei, kein Restverbrauch ohne Karte
+        s_card = NULL;
+        return err;
+    }
+    ESP_LOGI(TAG, "microSD: %s, %llu MB, SPI %d kHz", s_card->cid.name,
+             (unsigned long long)s_card->csd.capacity * s_card->csd.sector_size / (1024 * 1024),
+             CONFIG_RL_SD_FREQ_KHZ);
+    return ESP_OK;
+}
+#endif
+
+const char *storage_backend(void) { return s_backend; }
+
+// --- einmaliges Kopieren Flash → leere Karte ----------------------------------------------
+
+#if CONFIG_RL_STORAGE_USE_SD && CONFIG_RL_STORAGE_FLASH_FALLBACK
+
+#define COPY_BLOCK 1024
+
+// Verzeichnis ohne eigene Dateien? Versteckte Einträge (".…") und Windows-Systemordner zählen nicht.
+static bool dir_is_empty(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d) return true;
+    bool empty = true;
+    struct dirent *e;
+    while (empty && (e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.' || strcasecmp(e->d_name, "System Volume Information") == 0) continue;
+        empty = false;
+    }
+    closedir(d);
+    return empty;
 }
 
-const char *storage_backend(void) { return "flash"; }
+static void remove_tree(const char *path)
+{
+    DIR *d = opendir(path);
+    if (!d) {
+        unlink(path);
+        return;
+    }
+    char *child = malloc(PATH_MAX_LEN + 8);
+    struct dirent *e;
+    while (child && (e = readdir(d)) != NULL) {
+        if (snprintf(child, PATH_MAX_LEN + 8, "%s/%s", path, e->d_name) >= PATH_MAX_LEN + 8) continue;
+        if (e->d_type == DT_DIR) remove_tree(child);
+        else unlink(child);
+    }
+    free(child);
+    closedir(d);
+    rmdir(path);
+}
 
-#elif CONFIG_RL_STORAGE_SD
+static bool copy_file(const char *from, const char *to, char *buf)
+{
+    FILE *in = fopen(from, "rb");
+    if (!in) return false;
+    FILE *out = fopen(to, "wb");
+    bool ok = out != NULL;
+    size_t n;
+    while (ok && (n = fread(buf, 1, COPY_BLOCK, in)) > 0) ok = fwrite(buf, 1, n, out) == n;
+    ok = !ferror(in) && ok;
+    fclose(in);
+    if (out) ok = (fclose(out) == 0) && ok;
+    return ok;
+}
+
+// Rekursiv kopieren, versteckte Einträge (Markierung, .tmp-Reste) und .tmp-Dateien auslassen.
+static bool copy_tree(const char *from, const char *to, char *buf, unsigned *files)
+{
+    if (mkdir(to, 0775) != 0 && errno != EEXIST) return false;
+    DIR *d = opendir(from);
+    if (!d) return false;
+    char *src = malloc(2 * (PATH_MAX_LEN + 8));
+    char *dst = src ? src + PATH_MAX_LEN + 8 : NULL;
+    bool ok = src != NULL;
+    struct dirent *e;
+    while (ok && (e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        if (e->d_name[0] == '.' || (n > 4 && strcasecmp(e->d_name + n - 4, ".tmp") == 0)) continue;
+        if (snprintf(src, PATH_MAX_LEN + 8, "%s/%s", from, e->d_name) >= PATH_MAX_LEN + 8 ||
+            snprintf(dst, PATH_MAX_LEN + 8, "%s/%s", to, e->d_name) >= PATH_MAX_LEN + 8) {
+            ok = false;
+            break;
+        }
+        if (e->d_type == DT_DIR) {
+            ok = copy_tree(src, dst, buf, files);
+        } else {
+            ok = copy_file(src, dst, buf);
+            if (ok) (*files)++;
+            else ESP_LOGE(TAG, "Kopieren fehlgeschlagen: %s", src);
+        }
+    }
+    free(src);
+    closedir(d);
+    return ok;
+}
+
+// Steckt eine leere Karte und liegen im Flash Daten, die noch nie kopiert wurden: einmal kopieren.
+// Erst in einen versteckten Ordner, dann umbenennen – bricht der Strom ab, bleibt die Karte "leer"
+// und der nächste Start versucht es noch einmal.
+static void copy_flash_to_sd(void)
+{
+    remove_tree(STORAGE_ROOT IMPORT_DIR);  // Rest eines abgebrochenen Versuchs
+    if (!dir_is_empty(STORAGE_ROOT)) return;
+
+    wl_handle_t wl = WL_INVALID_HANDLE;
+    if (flash_mount(FLASH_MOUNT, false, &wl) != ESP_OK) return;  // nie formatieren, nur lesen
+    struct stat st;
+    char *buf = NULL;
+    if (stat(FLASH_MOUNT COPIED_MARK, &st) == 0 || dir_is_empty(FLASH_MOUNT) || !(buf = malloc(COPY_BLOCK))) {
+        goto out;
+    }
+    ESP_LOGW(TAG, "leere microSD: kopiere die Daten aus dem Flash (einmalig) ...");
+    unsigned files = 0;
+    bool ok = copy_tree(FLASH_MOUNT, STORAGE_ROOT IMPORT_DIR, buf, &files);
+    if (ok) {
+        // Inhalt des Import-Ordners an seinen Platz – je Eintrag neu lesen, nicht während des Umbenennens
+        char *a = malloc(2 * (PATH_MAX_LEN + 8));
+        char *b = a ? a + PATH_MAX_LEN + 8 : NULL;
+        ok = a != NULL;
+        while (ok) {
+            DIR *d = opendir(STORAGE_ROOT IMPORT_DIR);
+            struct dirent *e = d ? readdir(d) : NULL;
+            bool fits = e && snprintf(a, PATH_MAX_LEN + 8, STORAGE_ROOT IMPORT_DIR "/%s", e->d_name) < PATH_MAX_LEN + 8 &&
+                        snprintf(b, PATH_MAX_LEN + 8, STORAGE_ROOT "/%s", e->d_name) < PATH_MAX_LEN + 8;
+            if (d) closedir(d);
+            if (!e) break;
+            ok = fits && rename(a, b) == 0;
+        }
+        free(a);
+    }
+    remove_tree(STORAGE_ROOT IMPORT_DIR);
+    if (ok) {
+        FILE *f = fopen(FLASH_MOUNT COPIED_MARK, "wb");  // nicht noch einmal kopieren
+        if (f) fclose(f);
+        ESP_LOGW(TAG, "%u Dateien aus dem Flash auf die microSD kopiert (Flash bleibt unveraendert)", files);
+    } else {
+        ESP_LOGE(TAG, "Kopieren aus dem Flash fehlgeschlagen - die Karte bleibt leer, Flash unveraendert");
+    }
+out:
+    free(buf);
+    esp_vfs_fat_spiflash_unmount_rw_wl(FLASH_MOUNT, wl);
+}
+#endif
 
 static esp_err_t backend_mount(void)
 {
-    // TODO(SD): esp_vfs_fat_sdmmc_mount() bzw. esp_vfs_fat_sdspi_mount(), Pins aus Kconfig
-    ESP_LOGE(TAG, "microSD-Backend ist noch nicht implementiert");
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
-const char *storage_backend(void) { return "sd"; }
-
+    esp_err_t err = ESP_ERR_NOT_SUPPORTED;
+#if CONFIG_RL_STORAGE_USE_SD
+    err = sd_mount();
+    if (err == ESP_OK) {
+        s_backend = "sd";
+#if CONFIG_RL_STORAGE_FLASH_FALLBACK
+        copy_flash_to_sd();
 #endif
+        return ESP_OK;
+    }
+    ESP_LOGW(TAG, "keine lesbare microSD (%s) - Pins: MISO %d, MOSI %d, SCK %d, CS %d", esp_err_to_name(err),
+             CONFIG_RL_SD_PIN_MISO, CONFIG_RL_SD_PIN_MOSI, CONFIG_RL_SD_PIN_SCK, CONFIG_RL_SD_PIN_CS);
+#endif
+#if CONFIG_RL_STORAGE_FLASH_FALLBACK
+    ESP_LOGW(TAG, "RUECKFALL: SD-Emulation im Flash aktiv - Rezepte und Fotos liegen im internen Flash");
+    err = flash_mount(STORAGE_ROOT, true, &s_wl);
+    if (err == ESP_OK) s_backend = "flash";
+#endif
+    return err;
+}
 
 // ---------------------------------------------------------------------------
 
@@ -60,7 +272,7 @@ esp_err_t storage_init(void)
 {
     esp_err_t err = backend_mount();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Einhaengen fehlgeschlagen: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "kein Speicher eingehaengt: %s", esp_err_to_name(err));
         return err;
     }
     uint64_t total = 0, free_b = 0;

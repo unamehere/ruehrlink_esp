@@ -1,23 +1,73 @@
 menu "Ruehrlink: Speicher"
 
-choice RL_STORAGE_BACKEND
-    prompt "Speicher fuer Rezepte, Fotos, Programme"
-    default RL_STORAGE_FLASH
+config RL_STORAGE_USE_SD
+    bool "microSD-Karte ueber SPI (SDSPI)"
+    default y
     help
-        Beide Varianten haengen dasselbe FAT-Dateisystem unter STORAGE_ROOT ein,
-        der restliche Code merkt keinen Unterschied.
+        Rezepte, Fotos und Programme liegen auf einer microSD-Karte (FAT32), angeschlossen
+        ueber SPI. Steckt keine Karte oder ist sie nicht lesbar, greift der Rueckfall unten.
 
-config RL_STORAGE_FLASH
-    bool "SD-Emulation im internen Flash (Entwicklung, ca. 10 MB)"
+config RL_STORAGE_FLASH_FALLBACK
+    bool "Rueckfall: SD-Emulation im internen Flash"
+    default y
     help
-        FAT mit Wear Leveling auf der Partition "storage".
-        Nur fuer Entwicklung ohne microSD - vor der Beta auf SD umstellen!
+        Ohne (lesbare) Karte haengt die Bruecke stattdessen ein FAT mit Wear Leveling auf
+        der Flash-Partition "storage" ein (Entwicklung, ca. 10 MB). Braucht die Partition
+        "storage" in partitions.csv.
 
-config RL_STORAGE_SD
-    bool "microSD-Karte (Beta/Serie)"
+if RL_STORAGE_USE_SD
+
+config RL_SD_PIN_MISO
+    int "SD: MISO (Karte DAT0)"
+    default 18 if IDF_TARGET_ESP32C6
+    default 13
     help
-        Noch nicht implementiert. Pinbelegung folgt mit dem SD-Modul.
+        ESP32-S3-DevKitC-1: GPIO13. Ruehrlink-Platine (ESP32-C6): IO18.
 
-endchoice
+config RL_SD_PIN_MOSI
+    int "SD: MOSI (Karte CMD)"
+    default 20 if IDF_TARGET_ESP32C6
+    default 11
+    help
+        ESP32-S3-DevKitC-1: GPIO11. Ruehrlink-Platine (ESP32-C6): IO20.
+
+config RL_SD_PIN_SCK
+    int "SD: SCK (Karte CLK)"
+    default 19 if IDF_TARGET_ESP32C6
+    default 12
+    help
+        ESP32-S3-DevKitC-1: GPIO12. Ruehrlink-Platine (ESP32-C6): IO19.
+
+config RL_SD_PIN_CS
+    int "SD: CS (Karte DAT3)"
+    default 21 if IDF_TARGET_ESP32C6
+    default 10
+    help
+        ESP32-S3-DevKitC-1: GPIO10. Ruehrlink-Platine (ESP32-C6): IO21.
+
+config RL_SD_FREQ_KHZ
+    int "SD: SPI-Takt in kHz"
+    default 20000
+    range 400 40000
+    help
+        20 MHz laeuft mit kurzen Leitungen sicher. Bei Lesefehlern mit fliegender
+        Verdrahtung (Steckbrett) auf 10000 oder 4000 senken.
+
+config RL_SD_FORMAT_IF_FAILED
+    bool "SD: unlesbare Karte formatieren"
+    default n
+    help
+        Aus: Eine Karte ohne FAT (z. B. exFAT bei Karten ab 64 GB) wird nicht angefasst,
+        die Bruecke faellt auf den Flash zurueck. An: Karte wird ohne Rueckfrage formatiert.
+
+endif
+
+config RL_STORAGE_MAX_FILES
+    int "Gleichzeitig offene Dateien"
+    default 2
+    range 1 8
+    help
+        Jede offene Datei kostet internen RAM (Dateiobjekt + Sektorpuffer). Die Bruecke
+        oeffnet hoechstens zwei gleichzeitig (eine Antwort streamen, eine schreiben).
 
 endmenu

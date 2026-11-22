@@ -8,6 +8,21 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+## 0.5.0 – 22.11.2026
+
+### Neu
+- `GET /api/v1/diag` mit Zustand und den letzten Log-Ausgaben des Rührlink für „Problem melden“ (Fähigkeit
+  `diag`). **Sicherheit:** Passwörter, Einrichtungs-Code und Tokens werden vor dem Speichern maskiert.
+- „Maschine neu koppeln“ ohne Werksreset: `POST /api/v1/machine/repair` (Fähigkeit `machine.repair`).
+  Heim-WLAN, Handys und Rezepte bleiben.
+- Rezepte und Fotos liegen auf einer microSD (SPI). Ohne Karte wie bisher im internen Speicher; vorhandene Daten
+  werden einmal auf eine leere Karte kopiert. `/info` meldet `storage.backend` = `sd` oder `flash`.
+
+### Geändert
+- Der Name des Maschinen-WLANs wird einmal festgeschrieben und ändert sich durch Updates nicht mehr (F18).
+- `appliance.paired` in `/info` wird dauerhaft gemerkt.
+- Das eigene Maschinen-WLAN erscheint nicht mehr in der WLAN-Liste der Einrichtung.
+
 ## 0.4.0 – 21.11.2026
 
 ### Neu

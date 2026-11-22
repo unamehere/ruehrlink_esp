@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "nvs.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -14,6 +15,34 @@ ESP_EVENT_DEFINE_BASE(APPLIANCE_EVENT);
 static const appliance_driver_t *s_drv;
 static appliance_status_t s_status;
 static SemaphoreHandle_t s_lock;
+static int8_t s_paired = -1;  // -1 = noch nicht aus dem NVS gelesen
+
+#define NVS_NS "appliance"  // wird beim Werksreset gelöscht (factory.c)
+
+static void store_paired(bool on)
+{
+    s_paired = on;
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (on) nvs_set_u8(h, "paired", 1);
+    else nvs_erase_key(h, "paired");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+bool appliance_paired(void)
+{
+    if (s_paired < 0) {
+        uint8_t v = 0;
+        nvs_handle_t h;
+        if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+            nvs_get_u8(h, "paired", &v);
+            nvs_close(h);
+        }
+        s_paired = v != 0;
+    }
+    return s_paired > 0;
+}
 
 esp_err_t appliance_register(const appliance_driver_t *driver)
 {
@@ -40,9 +69,12 @@ void appliance_set_status(const appliance_status_t *s)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     bool changed = memcmp(&s_status, s, sizeof(*s)) != 0;
+    bool connect_edge = s->connected && !s_status.connected;
     s_status = *s;
     xSemaphoreGive(s_lock);
     if (changed) esp_event_post(APPLIANCE_EVENT, APPLIANCE_EVENT_STATUS, s, sizeof(*s), 0);
+    // Erste Verbindung = gekoppelt. Gilt auch für Brücken, die schon vor 0.4.x gekoppelt waren.
+    if (connect_edge && !appliance_paired()) store_paired(true);
 }
 
 void appliance_report_ack(bool ok)
@@ -153,4 +185,15 @@ esp_err_t appliance_stop(void)
 esp_err_t appliance_onboard(void)
 {
     return s_drv ? s_drv->onboard() : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t appliance_forget(void)
+{
+    if (!s_drv) return ESP_ERR_INVALID_STATE;
+    if (!s_drv->forget) return ESP_ERR_NOT_SUPPORTED;
+    esp_err_t err = s_drv->forget();
+    if (err != ESP_OK) return err;
+    store_paired(false);
+    ESP_LOGW(TAG, "Kopplung mit dem Geraet vergessen");
+    return ESP_OK;
 }
