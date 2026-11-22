@@ -253,6 +253,7 @@ Brücke → App:
   `remainingS` zählt dann die Warmhaltezeit; beenden mit `POST /machine/stop`), `lidClosed` (Kopf/Deckel verriegelt),
   `bowlTemp`/`tempSet` in °C, `speedSet`, `remainingS` in Sekunden. Gerätespezifische Namen bleiben im Treiber.
 - `seq` kommt bei jeder Änderung von Zustand/Schritt, bei Schritten ohne Motor zusätzlich 1×/s.
+  Solange ein Programm aktiv ist, spätestens alle 5 s auch ohne Änderung (verpasste Nachrichten, ab Firmware 0.5.x).
   `step` zählt ab 1 (`0` = kein Programm). `programId` ist `null` bei Inline-Programmen.
   `state`: `idle` · `waiting_start` (Knopf an der Maschine drücken) · `running` · `paused` · `done` · `aborted`.
   `reason`: `null` · `press_start` · `lid_open` · `bowl_missing` · `machine_paused` (am Gerät angehalten) ·

@@ -4,7 +4,9 @@
 #include <string.h>
 
 #include "appliance.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -28,6 +30,7 @@ ESP_EVENT_DEFINE_BASE(SEQUENCER_EVENT);
 // aber nicht von selbst hoch (Anleitung Z. 3839–3843). Die Brücke sendet die gewünschte Stufe dann neu.
 #define HOT_HYST_C       2                          // vorläufig, an der Maschine prüfen: so weit unter hot_temp
 #define HOT_MIN_LEFT_S   (LEAD_S + 3)               // kurz vor Schrittende nicht mehr neu senden
+#define REPUBLISH_US     (5 * 1000000LL)            // Stand spätestens so oft neu verteilen (verpasste Nachrichten, F26)
 
 typedef struct {
     char program_id[32];
@@ -59,6 +62,8 @@ static appliance_program_t s_plan[MAX_PLAN];
 static int s_plan_n, s_plan_pos, s_retries;
 static bool s_await_ack, s_need_start, s_seen_counting;
 static bool s_hot_limited;          // Stufe des laufenden Schritts ist wegen heißem Inhalt gedrosselt (B1)
+static bool s_pub_retry;            // letzter Stand ging nicht raus (Ereignisschleife voll)
+static uint32_t s_dropped;          // verworfene Meldungen (Warteschlange voll), fürs Protokoll
 static int64_t s_ack_deadline, s_next_send_at, s_step_started, s_elapsed_us, s_last_tick, s_paused_since,
     s_last_pub;
 static sequencer_state_t s_state = SEQUENCER_IDLE;
@@ -131,14 +136,25 @@ static void publish(int64_t now)
     info = s_info;
     xSemaphoreGive(s_lock);
     s_last_pub = now;
-    esp_event_post(SEQUENCER_EVENT, SEQUENCER_EVENT_CHANGED, &info, sizeof(info), 0);
+    if (esp_event_post(SEQUENCER_EVENT, SEQUENCER_EVENT_CHANGED, &info, sizeof(info), 0) != ESP_OK) {
+        // Ereignisschleife voll: beim nächsten Takt noch einmal, sonst bleibt die App beim alten Stand (F26)
+        if (!s_pub_retry) ESP_LOGW(TAG, "Stand nicht verteilt (%s) – wird nachgeholt", sequencer_state_name(s_state));
+        s_pub_retry = true;
+    } else {
+        s_pub_retry = false;
+    }
 }
 
-static void set_state(sequencer_state_t st, sequencer_reason_t r, int64_t now)
+// [why]: Anlass in Worten, nur fürs Protokoll (Problem melden zeigt das Box-Log, F26).
+static void set_state(sequencer_state_t st, sequencer_reason_t r, int64_t now, const char *why)
 {
     if (st != s_state || r != s_reason) {
-        ESP_LOGI(TAG, "Zustand: %s%s%s (Schritt %d/%d)", sequencer_state_name(st), r ? " – " : "",
-                 r ? sequencer_reason_name(r) : "", s_idx + 1, s_job.n);
+        ESP_LOGI(TAG, "Zustand: %s -> %s%s%s (Schritt %d/%d) – %s | Maschine: aktiv %d, Motor %d, heizt %d, Rest %lu s, "
+                 "Kopf %d, Schuessel %d | Heap %u frei, %u am Stueck",
+                 sequencer_state_name(s_state), sequencer_state_name(st), r ? " – " : "",
+                 r ? sequencer_reason_name(r) : "", s_idx + 1, s_job.n, why, s_st.active, s_st.running, s_st.heating,
+                 (unsigned long)s_st.remaining_s, s_st.lid_closed, s_st.bowl_fitted,
+                 (unsigned)esp_get_free_heap_size(), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     }
     if (st == SEQUENCER_RUNNING && s_state != SEQUENCER_RUNNING) {
         // Uhr des Schritts neu starten: Warte- und Pausenzeit zählt nicht (nur für die Rückfall-Zeit)
@@ -163,7 +179,7 @@ static void abort_seq(sequencer_reason_t r, int64_t now)
 {
     clear_plan();
     if (r != SEQUENCER_REASON_DISCONNECTED) appliance_stop();
-    set_state(SEQUENCER_ABORTED, r, now);
+    set_state(SEQUENCER_ABORTED, r, now, "Abbruch");
 }
 
 // Schritt (bzw. Restzeit davon) als Plan anlegen: Zwischenstufen der Rampe, dann der Zielwert.
@@ -209,8 +225,8 @@ static void step_sent(int64_t now)
     s_seen_counting = false;
     if (s_need_start) {
         s_need_start = false;
-        if (started(&s_st)) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now);
-        else set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now);
+        if (started(&s_st)) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now, "bestaetigt, Maschine laeuft schon");
+        else set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now, "bestaetigt, warte auf Knopf");
     } else {
         publish(now);
     }
@@ -260,7 +276,7 @@ static void begin_step(int idx, int64_t now)
 static void finish(int64_t now)
 {
     if (is_timer_step(&s_job.steps[s_idx])) appliance_stop();  // Heizen am Ende abschalten
-    set_state(SEQUENCER_DONE, SEQUENCER_REASON_NONE, now);
+    set_state(SEQUENCER_DONE, SEQUENCER_REASON_NONE, now, "letzter Schritt abgelaufen");
 }
 
 static void step_end(int64_t now)
@@ -273,14 +289,22 @@ static void pause_seq(sequencer_reason_t r, int64_t now)
 {
     clear_plan();
     s_paused_since = now;
-    set_state(SEQUENCER_PAUSED, r, now);
+    set_state(SEQUENCER_PAUSED, r, now, "Status");
 }
 
 // Nach Schüssel/Kopf: Die KCL95 hat ihr Programm selbst angehalten und behält Restzeit und Stufe; in diesem
 // Zustand lehnt sie neue Werte ab (gemessen 13.11., F12). Also nichts senden – nur auf den Knopfdruck warten.
+// Läuft sie in derselben Meldung schon wieder (Knopf sofort gedrückt), gleich weiter – sonst bliebe der Ablauf bei
+// „Knopf drücken“ stehen (F26).
 static void resume_after_safety(int64_t now)
 {
-    set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now);
+    if (s_need_start) {
+        // Schritt war beim Öffnen noch nicht bestätigt: der Plan ist verworfen, step_sent() kommt nicht mehr
+        ESP_LOGW(TAG, "Schritt %d war beim Oeffnen noch nicht bestaetigt", s_idx + 1);
+        s_need_start = false;
+    }
+    if (started(&s_st)) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now, "Kopf/Schuessel wieder ok, laeuft schon");
+    else set_state(SEQUENCER_WAITING_START, SEQUENCER_REASON_PRESS_START, now, "Kopf/Schuessel wieder ok");
 }
 
 static void start_job(job_t *job, int64_t now)
@@ -288,6 +312,7 @@ static void start_job(job_t *job, int64_t now)
     s_job = *job;
     free(job);
     clear_plan();
+    appliance_get_status(&s_st);  // frischer Stand, falls im Leerlauf Meldungen verloren gingen (F26)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     memset(&s_info, 0, sizeof(s_info));
     strlcpy(s_info.program_id, s_job.program_id, sizeof(s_info.program_id));
@@ -320,14 +345,19 @@ static void on_status(const appliance_status_t *st, int64_t now)
         if (safe && (s_reason == SEQUENCER_REASON_LID_OPEN || s_reason == SEQUENCER_REASON_BOWL_MISSING)) {
             resume_after_safety(now);
         } else if (s_reason == SEQUENCER_REASON_MACHINE_PAUSED && started(st)) {
-            set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now);
+            set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now, "am Geraet fortgesetzt");
         } else if (!safe && s_reason != SEQUENCER_REASON_LID_OPEN && s_reason != SEQUENCER_REASON_BOWL_MISSING) {
             pause_seq(st->bowl_fitted ? SEQUENCER_REASON_LID_OPEN : SEQUENCER_REASON_BOWL_MISSING, now);
         }
         return;
     }
     if (s_state == SEQUENCER_WAITING_START) {
-        if (started(st) && s_plan_n == 0) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now);
+        if (started(st) != started(&prev) || st->lid_closed != prev.lid_closed) {
+            ESP_LOGI(TAG, "warte auf Start: aktiv %d, Motor %d, heizt %d, Rest %lu s, Plan %d/%d%s", st->active, st->running,
+                     st->heating, (unsigned long)st->remaining_s, s_plan_pos, s_plan_n,
+                     s_await_ack ? ", warte auf Bestaetigung" : "");
+        }
+        if (started(st) && s_plan_n == 0) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now, "Knopf gedrueckt");
         return;
     }
     // RUNNING: am Gerät angehalten? (nicht kurz vor Schrittende und nicht nach einer Ruhephase)
@@ -352,6 +382,18 @@ static void tick(int64_t now)
     s_last_tick = now;
     if (!is_active(s_state)) return;
 
+    // Rückfall: eine verworfene Statusmeldung (Warteschlange voll) nachholen. Nur bei leerer Warteschlange,
+    // sonst käme danach noch eine ältere Meldung und der Stand spränge zurück.
+    if (uxQueueMessagesWaiting(s_queue) == 0) {
+        appliance_status_t cur;
+        appliance_get_status(&cur);
+        if (memcmp(&cur, &s_st, sizeof(cur)) != 0) {
+            on_status(&cur, now);
+            if (!is_active(s_state)) return;
+        }
+    }
+    if (s_pub_retry || now - s_last_pub >= REPUBLISH_US) publish(now);
+
     // Plan abarbeiten (Rampe, Wiederholungen)
     if (s_plan_n > 0) {
         if (!s_await_ack && now >= s_next_send_at) send_planned(now);
@@ -360,6 +402,11 @@ static void tick(int64_t now)
     }
     if (s_state == SEQUENCER_PAUSED) {
         if (now - s_paused_since > PAUSE_MAX_US) abort_seq(SEQUENCER_REASON_TIMEOUT, now);
+        return;
+    }
+    if (s_state == SEQUENCER_WAITING_START) {
+        // Absicherung: läuft die Maschine schon, ohne dass on_status() es gesehen hat (F26) → weiter
+        if (started(&s_st)) set_state(SEQUENCER_RUNNING, SEQUENCER_REASON_NONE, now, "Maschine laeuft (Takt)");
         return;
     }
     if (s_state != SEQUENCER_RUNNING) return;
@@ -423,7 +470,13 @@ static void on_appliance_event(void *arg, esp_event_base_t base, int32_t id, voi
     } else {
         return;
     }
-    if (xQueueSend(s_queue, &m, 0) != pdTRUE) ESP_LOGW(TAG, "Warteschlange voll");
+    if (xQueueSend(s_queue, &m, 0) != pdTRUE) {
+        // Status holt tick() nach; eine verlorene Bestätigung fängt die Wartezeit ab
+        if ((s_dropped++ % 20) == 0) {
+            ESP_LOGW(TAG, "Warteschlange voll – %s verworfen (%lu insgesamt)", m.type == MSG_ACK ? "Bestaetigung" : "Status",
+                     (unsigned long)s_dropped);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
