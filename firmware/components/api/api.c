@@ -203,7 +203,13 @@ static void broadcast(const char *type, cJSON *data)
     cJSON_AddItemToObject(m, "d", data);
     char *s = cJSON_PrintUnformatted(m);
     cJSON_Delete(m);
-    if (s && httpd_queue_work(s_server, broadcast_work, s) != ESP_OK) free(s);
+    if (!s && strcmp(type, "weight") != 0) ESP_LOGW(TAG, "WS: %s nicht verteilt (kein RAM)", type);
+    if (s && httpd_queue_work(s_server, broadcast_work, s) != ESP_OK) {
+        free(s);
+        // Waage-Nachrichten kommen oft – Verluste dort nur selten melden, alles andere immer (F26)
+        static uint32_t dropped;
+        if (strcmp(type, "weight") != 0 || (dropped++ % 50) == 0) ESP_LOGW(TAG, "WS: %s nicht verteilt", type);
+    }
 }
 
 static void on_appliance_event(void *arg, esp_event_base_t base, int32_t id, void *data)

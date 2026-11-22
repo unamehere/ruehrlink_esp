@@ -72,7 +72,14 @@ void appliance_set_status(const appliance_status_t *s)
     bool connect_edge = s->connected && !s_status.connected;
     s_status = *s;
     xSemaphoreGive(s_lock);
-    if (changed) esp_event_post(APPLIANCE_EVENT, APPLIANCE_EVENT_STATUS, s, sizeof(*s), 0);
+    if (changed) {
+        esp_err_t err = esp_event_post(APPLIANCE_EVENT, APPLIANCE_EVENT_STATUS, s, sizeof(*s), 0);
+        // Verlorene Statusmeldung: der Ablauf holt sie selbst nach (sequencer tick), fürs Protokoll trotzdem (F26)
+        static uint32_t lost;
+        if (err != ESP_OK && (lost++ % 20) == 0) {
+            ESP_LOGW(TAG, "Status nicht verteilt: %s (%lu insgesamt)", esp_err_to_name(err), (unsigned long)lost);
+        }
+    }
     // Erste Verbindung = gekoppelt. Gilt auch für Brücken, die schon vor 0.4.x gekoppelt waren.
     if (connect_edge && !appliance_paired()) store_paired(true);
 }
