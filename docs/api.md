@@ -56,6 +56,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | POST | `/api/v1/pair/approve` | Kopplungsanfrage bestätigen `{"id"}` |
 | POST | `/api/v1/reset` | Werksreset (siehe unten), danach Neustart |
 | POST | `/api/v1/time` | Uhrzeit von der App setzen (die Brücke hat kein Internet/NTP) |
+| GET | `/api/v1/diag` | Diagnose für „Problem melden“: Zustand der Brücke + letzte Log-Ausgaben (siehe unten) |
 
 ### `GET /api/v1/info`
 
@@ -67,7 +68,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   "api": 1,
   "apiSupported": [1],
   "features": ["machine", "machine.onboard", "scale", "scale.tare", "sequence", "programs",
-               "recipes", "media", "time", "pair", "reset", "ota"],
+               "recipes", "media", "time", "pair", "reset", "ota", "diag"],
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
   "appliance": {
     "paired": true,
@@ -113,6 +114,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | `pair` | 0.3 | `POST /pair`, `/pair/approve`, WS `pairRequest` |
 | `reset` | 0.3 | `POST /reset` |
 | `ota` | 0.3 | `POST /ota` |
+| `diag` | 0.5 | `GET /diag` |
 
 ### Einzelheiten
 
@@ -147,6 +149,25 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   Neustart in die neue Firmware. Die Brücke ist während des Uploads (ca. 30 s) für andere Anfragen blockiert –
   den Fortschritt zählt die App selbst (gesendete Bytes). Fehler: `400 {"error":"header|upload|size|sha256|signature|image"}`,
   `409 {"error":"busy"}` (Programm oder Maschine läuft), `413 {"error":"size"}`. Danach `GET /info` → `fw` prüfen.
+- `GET /api/v1/diag` – nur mit Token. Für „Problem melden“ in der App; die App zeigt den Inhalt vor dem Versenden an.
+  ```json
+  {"fw":"0.5.0","idf":"v6.1","uptimeS":5321,"resetReason":"poweron",
+   "heap":{"free":181234,"minFree":150112,"internalFree":181234,"internalMinFree":150112,"largestBlock":65536},
+   "wifi":{"configured":true,"connected":true,"rssi":-58,"error":null},
+   "appliance":{"connected":true,"active":false},"sequence":"idle",
+   "ota":{"running":"ota_0","pendingVerify":false},
+   "logTruncated":true,
+   "log":"I (5310) api: …
+I (5320) kenwood: …
+"}
+  ```
+  `resetReason`: `poweron|external|software|panic|int_wdt|task_wdt|wdt|deepsleep|brownout|sdio|usb|jtag|efuse|power_glitch|cpu_lockup|unknown`.
+  `rssi` in dBm, `null` ohne Heim-WLAN. `wifi.error` wie bei der Einrichtung (`auth|not_found|other`).
+  `log`: die letzten Log-Ausgaben der Firmware seit dem Start (Ringpuffer im RAM, 8 KB, nach einem Neustart leer,
+  Farbcodes entfernt). `logTruncated: true` = ältere Ausgaben sind schon überschrieben, die erste unvollständige
+  Zeile ist weggelassen. Zugangsdaten werden **vor dem Speichern** maskiert (`*`): Maschinen- und Heim-WLAN-Passwort,
+  Einrichtungs-Code (PoP), 32-stellige Hex-Folgen (App-Tokens) und Werte nach `password|passwort|passwd|pass|pwd|psk|pop|token|secret|key`
+  mit `:` oder `=`. Die WLAN-Namen (SSID) bleiben lesbar. Seit Firmware 0.5.0 (Fähigkeit `diag`).
 - `POST /api/v1/sequence/abort` – Antwort `202`; `409 {"error":"idle"}`, wenn nichts läuft.
 - Während ein Programm läuft, antworten `POST /machine/program` mit `409 {"error":"busy"}`;
   `POST /machine/stop` bricht das Programm ab (wie `/sequence/abort`).

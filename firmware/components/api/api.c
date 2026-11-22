@@ -16,11 +16,16 @@
 #include "esp_app_desc.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "appliance.h"
 #include "auth.h"
+#include "diag.h"
 #include "factory.h"
 #include "net.h"
 #include "recipes.h"
@@ -53,6 +58,7 @@ static const char *const FEATURES[] = {
     "pair",             // POST /pair, /pair/approve, WS pairRequest
     "reset",            // POST /reset
     "ota",              // POST /ota
+    "diag",             // GET /diag
 };
 
 static httpd_handle_t s_server;
@@ -895,6 +901,139 @@ static esp_err_t h_time(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
+// --- Diagnose („Problem melden“) ----------------------------------------------------
+
+static const char *reset_reason_name(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_POWERON: return "poweron";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "int_wdt";
+    case ESP_RST_TASK_WDT: return "task_wdt";
+    case ESP_RST_WDT: return "wdt";
+    case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    case ESP_RST_USB: return "usb";
+    case ESP_RST_JTAG: return "jtag";
+    case ESP_RST_EFUSE: return "efuse";
+    case ESP_RST_PWR_GLITCH: return "power_glitch";
+    case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+    default: return "unknown";
+    }
+}
+
+// Log als JSON-String-Inhalt escapen (ohne Anführungszeichen). out braucht 6 × n Byte.
+static size_t json_escape(const char *in, size_t n, char *out)
+{
+    size_t o = 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '"' || c == '\\') {
+            out[o++] = '\\';
+            out[o++] = (char)c;
+        } else if (c == '\n') {
+            out[o++] = '\\';
+            out[o++] = 'n';
+        } else if (c == '\t') {
+            out[o++] = '\\';
+            out[o++] = 't';
+        } else if (c == '\r') {
+            continue;
+        } else if (c < 0x20 || c == 0x7f) {
+            o += sprintf(out + o, "\\u%04x", c);
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    return o;
+}
+
+#define DIAG_READ 256
+
+// GET /api/v1/diag → Zustand der Brücke + letzte Log-Ausgaben (Zugangsdaten maskiert, siehe diag.h).
+// Das Log wird in Stücken direkt aus dem Ringpuffer gestreamt, damit kein zweiter 8-KB-Puffer nötig ist.
+static esp_err_t h_diag(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    uint32_t pos, end;
+    diag_log_span(&pos, &end);  // Stand jetzt festhalten – was beim Senden dazukommt, gehört nicht mehr dazu
+    bool wrapped = end - pos >= CONFIG_RL_DIAG_LOG_SIZE;
+
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "fw", esp_app_get_description()->version);
+    cJSON_AddStringToObject(o, "idf", esp_get_idf_version());
+    cJSON_AddNumberToObject(o, "uptimeS", (double)(esp_timer_get_time() / 1000000));
+    cJSON_AddStringToObject(o, "resetReason", reset_reason_name(esp_reset_reason()));
+    cJSON *h = cJSON_AddObjectToObject(o, "heap");
+    cJSON_AddNumberToObject(h, "free", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(h, "minFree", esp_get_minimum_free_heap_size());
+    cJSON_AddNumberToObject(h, "internalFree", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(h, "internalMinFree", heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(h, "largestBlock", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    cJSON *w = cJSON_AddObjectToObject(o, "wifi");
+    cJSON_AddBoolToObject(w, "configured", net_home_configured());
+    cJSON_AddBoolToObject(w, "connected", net_home_connected());
+    int rssi;
+    if (net_home_rssi(&rssi)) cJSON_AddNumberToObject(w, "rssi", rssi);
+    else cJSON_AddNullToObject(w, "rssi");
+    const char *werr = net_home_error();
+    if (werr) cJSON_AddStringToObject(w, "error", werr);
+    else cJSON_AddNullToObject(w, "error");
+    appliance_status_t st;
+    appliance_get_status(&st);
+    cJSON *a = cJSON_AddObjectToObject(o, "appliance");
+    cJSON_AddBoolToObject(a, "connected", st.connected);
+    cJSON_AddBoolToObject(a, "active", st.active);
+    sequencer_info_t si;
+    sequencer_get(&si);
+    cJSON_AddStringToObject(o, "sequence", sequencer_state_name(si.state));
+    cJSON *ota = cJSON_AddObjectToObject(o, "ota");
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    cJSON_AddStringToObject(ota, "running", run ? run->label : "?");
+    esp_ota_img_states_t ost;
+    cJSON_AddBoolToObject(ota, "pendingVerify",
+                          run && esp_ota_get_state_partition(run, &ost) == ESP_OK && ost == ESP_OTA_IMG_PENDING_VERIFY);
+    cJSON_AddBoolToObject(o, "logTruncated", wrapped);
+
+    char *head = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    char *buf = malloc(DIAG_READ + DIAG_READ * 6 + 1);
+    if (!head || !buf) {
+        free(head);
+        free(buf);
+        return httpd_resp_send_500(req);
+    }
+    char *esc = buf + DIAG_READ;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    size_t hl = strlen(head);
+    head[hl - 1] = '\0';  // schließende Klammer weg, "log" kommt dahinter
+    bool ok = httpd_resp_send_chunk(req, head, hl - 1) == ESP_OK &&
+              httpd_resp_send_chunk(req, ",\"log\":\"", 8) == ESP_OK;
+    free(head);
+    bool skip_partial = wrapped;  // erste Zeile ist nach dem Überlauf meist abgeschnitten
+    size_t n;
+    while (ok && (n = diag_log_read(&pos, end, buf, DIAG_READ)) > 0) {
+        const char *p = buf;
+        if (skip_partial) {
+            const char *nl = memchr(buf, '\n', n);
+            if (!nl) continue;
+            skip_partial = false;
+            n -= (size_t)(nl + 1 - buf);
+            p = nl + 1;
+        }
+        size_t el = json_escape(p, n, esc);
+        if (el) ok = httpd_resp_send_chunk(req, esc, el) == ESP_OK;
+    }
+    if (ok) ok = httpd_resp_send_chunk(req, "\"}", 2) == ESP_OK;
+    if (ok) httpd_resp_send_chunk(req, NULL, 0);
+    free(buf);
+    return ok ? ESP_OK : ESP_FAIL;
+}
+
 static esp_err_t h_pair(httpd_req_t *req)
 {
     cJSON *b = req->content_len ? read_body(req) : cJSON_CreateObject();
@@ -968,6 +1107,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/media/*", .method = HTTP_GET, .handler = h_media_get},
         {.uri = "/api/v1/media/*", .method = HTTP_PUT, .handler = h_media_put},
         {.uri = "/api/v1/time", .method = HTTP_POST, .handler = h_time},
+        {.uri = "/api/v1/diag", .method = HTTP_GET, .handler = h_diag},
         {.uri = "/api/v1/reset", .method = HTTP_POST, .handler = h_reset},
         {.uri = "/api/v1/ota", .method = HTTP_POST, .handler = h_ota},
         {.uri = "/api/v1/pair", .method = HTTP_POST, .handler = h_pair},

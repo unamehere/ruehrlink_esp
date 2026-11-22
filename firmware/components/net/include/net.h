@@ -27,6 +27,8 @@ const char *net_ap_password(void);
 // Heim-WLAN setzen (speichert dauerhaft) und verbinden.
 esp_err_t net_home_set(const char *ssid, const char *password);
 bool net_home_connected(void);
+// Signalstärke des Heim-WLANs in dBm; false, wenn nicht verbunden.
+bool net_home_rssi(int *rssi);
 bool net_home_configured(void);
 // Letzter Verbindungsfehler des Heim-WLANs: "auth" (Passwort), "not_found", "other" oder NULL.
 const char *net_home_error(void);
