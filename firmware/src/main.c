@@ -13,6 +13,7 @@
 
 #include "api.h"
 #include "appliance.h"
+#include "diag.h"
 #include "factory.h"
 #include "kenwood.h"
 #include "led.h"
@@ -64,6 +65,7 @@ static void log_ram(const char *wann)
 
 void app_main(void)
 {
+    diag_init();  // zuerst: ab hier landen alle Log-Ausgaben auch im Diagnose-Puffer
     ESP_LOGI(TAG, "Ruehrlink startet");
 #if CONFIG_RL_RAM_LOG
     heap_caps_register_failed_alloc_callback(alloc_failed);

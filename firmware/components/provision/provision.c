@@ -19,6 +19,7 @@
 #include "nvs.h"
 
 #include "api.h"
+#include "diag.h"
 #include "led.h"
 #include "net.h"
 
@@ -278,6 +279,7 @@ static void stop_cb(void *arg)
 
 esp_err_t provision_start(void)
 {
+    diag_add_secret(s_pop);  // Einrichtungs-Code nie ins Diagnose-Log
     esp_err_t err = load_credentials();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Schluessel: %s", esp_err_to_name(err));

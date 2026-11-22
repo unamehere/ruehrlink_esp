@@ -17,6 +17,7 @@
 #include "mdns.h"
 #include "nvs.h"
 
+#include "diag.h"
 #include "net_priv.h"
 
 static const char *TAG = "net";
@@ -40,6 +41,7 @@ static volatile bool s_home_paused;
 static volatile uint8_t s_last_reason;  // letzter Trennungsgrund Heim-WLAN (0 = keiner)
 static bool s_temp_active;          // STA steckt gerade in einem fremden WLAN (Kopplung)
 static wifi_config_t s_home_saved;
+static char s_home_pass[65];      // nur zum Maskieren im Diagnose-Log (diag)
 
 // ---------------------------------------------------------------------------
 // Identität und AP-Passwort
@@ -259,6 +261,14 @@ void net_ap_use_default(void)
 
 bool net_home_connected(void) { return s_home_connected; }
 
+bool net_home_rssi(int *rssi)
+{
+    wifi_ap_record_t ap;
+    if (!s_home_connected || s_temp_active || esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return false;
+    *rssi = ap.rssi;
+    return true;
+}
+
 const char *net_home_error(void)
 {
     switch (s_last_reason) {
@@ -287,6 +297,7 @@ esp_err_t net_home_set(const char *ssid, const char *password)
     }
     strcpy((char *)cfg.sta.ssid, ssid);
     strcpy((char *)cfg.sta.password, password);
+    snprintf(s_home_pass, sizeof(s_home_pass), "%s", password);
     cfg.sta.threshold.authmode = password[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     cfg.sta.pmf_cfg.capable = true;
     esp_wifi_disconnect();
@@ -358,6 +369,8 @@ esp_err_t net_start(void)
 {
     init_identity();
     load_ap_password();
+    diag_add_secret(s_ap_pass);
+    diag_add_secret(s_home_pass);
     char dev_ssid[33] = "", dev_pass[65] = "";
 #if CONFIG_RL_DEVELOPER_MODE
     load_dev_overrides(dev_ssid, sizeof(dev_ssid), dev_pass, sizeof(dev_pass));
@@ -394,6 +407,11 @@ esp_err_t net_start(void)
     if (dev_ssid[0]) {
         ESP_LOGW(TAG, "Entwicklung: Heim-WLAN aus NVS uebernommen");
         net_home_set(dev_ssid, dev_pass);
+    }
+
+    wifi_config_t sta = {0};
+    if (s_home_pass[0] == '\0' && esp_wifi_get_config(WIFI_IF_STA, &sta) == ESP_OK) {
+        snprintf(s_home_pass, sizeof(s_home_pass), "%s", (char *)sta.sta.password);
     }
 
     ESP_ERROR_CHECK(esp_wifi_start());
