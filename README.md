@@ -16,8 +16,13 @@ und macht sie wieder vernetzt nutzbar – komplett lokal, ohne Internet, ohne Ko
   Rührlink-App (iOS/Android) an – siehe [`docs/api.md`](docs/api.md).
 - Führt mehrstufige Programme (z. B. Teig kneten → ruhen → nachkneten) selbst aus,
   damit nichts abbricht, wenn das Handy schläft.
-- Speichert die Rezeptbibliothek des Haushalts (inkl. Fotos) auf der microSD-Karte.
-- Optional: Home Assistant über MQTT.
+- Speichert die Rezeptbibliothek des Haushalts (inkl. Fotos) auf der microSD-Karte (SPI). Ohne Karte
+  läuft sie im internen Flash weiter; vorhandene Daten werden einmal auf eine leere Karte kopiert.
+- Updates per Datei `ruehrlink-<version>.rlfw` (signiert, A/B-Partitionen mit automatischem Rückfall),
+  unabhängig von der App-Version. Die App bringt jeweils die neueste Firmware mit.
+- „Maschine neu koppeln“ ohne Werksreset; der Name des Maschinen-WLANs bleibt bei Updates gleich.
+- Diagnose für „Problem melden“: letzte Log-Ausgaben im RAM, Zugangsdaten maskiert (`GET /api/v1/diag`).
+- Später: Home Assistant über MQTT.
 
 ## Aufbau des Repos
 
@@ -53,7 +58,7 @@ Die Firmware läuft damit auf frei kaufbaren Teilen – eine eigene Platine ist 
 
 ## Status
 
-Frühe Entwicklung (MVP für die Beta, Dezember 2026).
+Beta-Vorbereitung (Firmware 0.5.0, Beta ab Dezember 2026). Änderungen: [CHANGELOG.md](CHANGELOG.md).
 
 ## Lizenz
 
