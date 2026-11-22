@@ -8,6 +8,15 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+## 0.5.1 – 22.11.2026
+
+### Behoben
+- Der Start am Gerät wird zuverlässig erkannt, auch wenn Statusmeldungen verloren gehen; der Programmstand wird
+  während eines Programms regelmäßig neu verteilt (F26).
+
+### Geändert
+- Ausführlicheres Protokoll der Programm-Zustandswechsel mit Anlass und freiem Speicher.
+
 ## 0.5.0 – 22.11.2026
 
 ### Neu
