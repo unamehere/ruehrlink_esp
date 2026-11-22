@@ -51,6 +51,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | PUT | `/api/v1/media/{sha256}` | Foto hochladen (max. 1 MB) |
 | GET | `/api/v1/programs` | Programme (feste Abläufe) |
 | POST | `/api/v1/machine/onboard` | Maschine koppeln (Ablauf siehe architektur.md) |
+| POST | `/api/v1/machine/repair` | Maschine neu koppeln: nur die Kopplung mit der Maschine vergessen (siehe unten) |
 | POST | `/api/v1/ota` | Firmware-Update hochladen (siehe [`updates.md`](updates.md)) |
 | POST | `/api/v1/pair` | Kopplung anfragen (siehe oben) |
 | POST | `/api/v1/pair/approve` | Kopplungsanfrage bestätigen `{"id"}` |
@@ -66,7 +67,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   "fw": "0.1.0",
   "api": 1,
   "apiSupported": [1],
-  "features": ["machine", "machine.onboard", "scale", "scale.tare", "sequence", "programs",
+  "features": ["machine", "machine.onboard", "machine.repair", "scale", "scale.tare", "sequence", "programs",
                "recipes", "media", "time", "pair", "reset", "ota"],
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
   "appliance": {
@@ -103,6 +104,7 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 |---|---|---|
 | `machine` | 0.3 | `POST /machine/program`, `/machine/stop` |
 | `machine.onboard` | 0.3 | `POST /machine/onboard` |
+| `machine.repair` | 0.4.1 | `POST /machine/repair` |
 | `scale` | 0.3 | `POST /scale/watch`, WS `weight` |
 | `scale.tare` | 0.3 | `POST /scale/tare` |
 | `sequence` | 0.3 | `/sequence/start`, `/sequence/abort`, `GET /sequence`, WS `seq` |
@@ -133,6 +135,17 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   **Während der Kopplung ist die Brücke im Heim-WLAN nicht erreichbar** (ca. 10 s bis 3 min): die STA geht ins
   Setup-WLAN der Maschine und hält danach den Kanal. Die App zeigt den Schritt an und verbindet danach neu;
   Ergebnis dann über `GET /info` (`appliance.connected`). Die WS-Meldungen `searching`/`sent` gehen evtl. verloren.
+- `POST /api/v1/machine/repair` – „Maschine neu koppeln“ ohne Werksreset. Kein Body, Antwort `202 {}`.
+  Die Brücke vergibt ein **neues Passwort fürs Maschinen-WLAN** (der Name bleibt, s. u.), trennt die Maschine,
+  vergisst das Zertifikat ihrer Waage und setzt `appliance.paired` auf `false`. Heim-WLAN, App-Kopplungen,
+  Rezepte und Einrichtungs-Code bleiben. Die Maschine kommt erst nach einer neuen Kopplung
+  (`POST /machine/onboard`) wieder herein – die App führt direkt danach durch diesen Schritt.
+  `409 {"error":"busy"}`, solange ein Programm läuft, die Maschine arbeitet oder gerade gekoppelt wird.
+- **Name des Maschinen-WLANs** (`Ruehrlink-XXXX`): wird beim ersten Start gebildet und im NVS festgeschrieben;
+  danach ändert ihn kein Update mehr (auch nicht bei einer Umbenennung des Produkts). Brücken ohne Eintrag
+  (bis Firmware 0.4.0) schreiben beim ersten Start den bisherigen Namen fest. Nur der Werksreset löscht ihn.
+- `appliance.paired`: seit 0.4.1 dauerhaft gemerkt – `true` ab der ersten Verbindung der Maschine, bis zu
+  `POST /machine/repair` oder Werksreset. Vorher war es gleich `connected`.
 
 - `POST /api/v1/sequence/start` – Body entweder `{"programId":"eischnee"}` (Datei `/data/programs/<id>.json`)
   oder inline `{"name":"Pizzateig","steps":[{"speed":7,"time":60,"temperature":0,"label":"Unterrühren"}, …]}`

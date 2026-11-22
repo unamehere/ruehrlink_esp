@@ -64,6 +64,7 @@ typedef struct {
     esp_err_t (*send_program)(const appliance_program_t *p);   // Werte senden
     esp_err_t (*stop)(void);                                   // laufendes Programm beenden
     esp_err_t (*onboard)(void);                                // Gerät mit der Brücke koppeln
+    esp_err_t (*forget)(void);                                 // Kopplung vergessen (NULL = nicht möglich)
     esp_err_t (*scale_watch)(uint32_t seconds);                // Waage für so lange liefern (NULL = keine)
 } appliance_driver_t;
 
@@ -98,6 +99,14 @@ void appliance_get_status(appliance_status_t *out);
 esp_err_t appliance_send(const appliance_program_t *p);
 esp_err_t appliance_stop(void);
 esp_err_t appliance_onboard(void);
+
+// Wurde je ein Gerät gekoppelt (und seitdem nicht vergessen)? Dauerhaft im NVS gemerkt, sobald sich ein
+// Gerät verbindet.
+bool appliance_paired(void);
+// „Maschine neu koppeln“: nur die Kopplung mit dem Gerät vergessen (Heim-WLAN, Apps, Rezepte bleiben).
+// Danach ist die Brücke bereit für appliance_onboard(). ESP_ERR_NOT_SUPPORTED ohne Treiber-Unterstützung,
+// ESP_ERR_INVALID_STATE während einer Kopplung.
+esp_err_t appliance_forget(void);
 
 // Waage `seconds` Sekunden lang liefern lassen (App erneuert, solange sie sie anzeigt).
 // ESP_ERR_NOT_SUPPORTED ohne Waage, ESP_ERR_INVALID_STATE wenn kein Gerät verbunden ist.

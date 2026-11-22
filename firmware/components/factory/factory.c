@@ -11,7 +11,7 @@ static const char *TAG = "factory";
 #define QUICK_BOOTS     5                     // so oft kurz hintereinander einstecken
 #define STABLE_AFTER_US (10 * 1000000LL)      // länger an = kein „kurzes“ Einschalten
 
-static const char *const ERASE_NS[] = {"net", "api"};  // "prov" (QR-Code) bleibt
+static const char *const ERASE_NS[] = {"net", "api", "appliance"};  // "prov" (QR-Code) bleibt
 
 static void set_counter(uint8_t v)
 {

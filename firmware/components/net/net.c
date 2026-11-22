@@ -27,7 +27,8 @@ static const char *TAG = "net";
 #define RECONNECT_MAX_MS 60000
 
 static char s_id[5];               // "98C0"
-static char s_ap_ssid[33];         // "Ruehrlink-98C0"
+static char s_ap_ssid[33];         // aktuell aktiv (Entwicklung: evtl. Überschreibung)
+static char s_ap_ssid_fixed[33];   // festgeschrieben im NVS, z. B. "Ruehrlink-98C0" (F18)
 static char s_ap_pass[64];
 static char s_hostname[20];        // "ruehrlink-98c0"
 
@@ -49,8 +50,27 @@ static void init_identity(void)
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(s_id, sizeof(s_id), "%02X%02X", mac[4], mac[5]);
-    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Ruehrlink-%s", s_id);
     snprintf(s_hostname, sizeof(s_hostname), "ruehrlink-%02x%02x", mac[4], mac[5]);
+}
+
+// Name des Maschinen-WLANs: nur beim allerersten Start aus Produktname + MAC gebildet, danach immer
+// aus dem NVS. Die Maschine kennt ihn seit der Kopplung – ein Update (z. B. eine Umbenennung des
+// Produkts) darf ihn deshalb nie ändern (F18). Boxen ohne Eintrag (bis 0.4.0) schreiben beim ersten
+// Start mit dieser Firmware den bisherigen Namen fest – das ist genau der, den die Maschine kennt.
+// Nur ein Werksreset löscht ihn (Namensraum "net"), danach muss die Maschine ohnehin neu gekoppelt werden.
+static void load_ap_ssid(void)
+{
+    nvs_handle_t h;
+    ESP_ERROR_CHECK(nvs_open(NVS_NS, NVS_READWRITE, &h));
+    size_t len = sizeof(s_ap_ssid_fixed);
+    if (nvs_get_str(h, "ap_ssid", s_ap_ssid_fixed, &len) != ESP_OK || !s_ap_ssid_fixed[0]) {
+        snprintf(s_ap_ssid_fixed, sizeof(s_ap_ssid_fixed), "Ruehrlink-%s", s_id);
+        ESP_ERROR_CHECK(nvs_set_str(h, "ap_ssid", s_ap_ssid_fixed));
+        ESP_ERROR_CHECK(nvs_commit(h));
+        ESP_LOGI(TAG, "Name des Maschinen-WLANs festgeschrieben: %s", s_ap_ssid_fixed);
+    }
+    nvs_close(h);
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "%s", s_ap_ssid_fixed);
 }
 
 // Pro Gerät zufällig, beim ersten Start erzeugt (siehe docs/architektur.md).
@@ -233,19 +253,9 @@ void net_temp_leave(uint32_t hold_s)
     net_home_pause(hold_s);
 }
 
-void net_ap_use_default(void)
+// Name und Passwort aus s_ap_ssid/s_ap_pass in den laufenden AP übernehmen.
+static void apply_ap_config(void)
 {
-    nvs_handle_t h;
-    bool had = false;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        had = nvs_erase_key(h, "dev_ap_ssid") == ESP_OK;
-        nvs_erase_key(h, "dev_ap_pass");
-        nvs_commit(h);
-        nvs_close(h);
-    }
-    if (!had) return;
-    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Ruehrlink-%s", s_id);
-    load_ap_password();
     wifi_config_t ap = {0};
     esp_wifi_get_config(WIFI_IF_AP, &ap);
     memset(ap.ap.ssid, 0, sizeof(ap.ap.ssid));
@@ -254,7 +264,46 @@ void net_ap_use_default(void)
     ap.ap.ssid_len = strlen(s_ap_ssid);
     strcpy((char *)ap.ap.password, s_ap_pass);
     esp_wifi_set_config(WIFI_IF_AP, &ap);
+}
+
+// Entwickler-Überschreibung löschen; true, wenn eine da war.
+static bool erase_dev_ap(nvs_handle_t h)
+{
+    bool had = nvs_erase_key(h, "dev_ap_ssid") == ESP_OK;
+    nvs_erase_key(h, "dev_ap_pass");
+    return had;
+}
+
+void net_ap_use_default(void)
+{
+    nvs_handle_t h;
+    bool had = false;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        had = erase_dev_ap(h);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    if (!had) return;
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "%s", s_ap_ssid_fixed);
+    load_ap_password();
+    apply_ap_config();
     ESP_LOGW(TAG, "Entwickler-Maschinen-WLAN entfernt, jetzt %s", s_ap_ssid);
+}
+
+void net_ap_renew_password(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        erase_dev_ap(h);
+        nvs_erase_key(h, "ap_pass");
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "%s", s_ap_ssid_fixed);  // Name bleibt
+    load_ap_password();  // erzeugt ein neues
+    apply_ap_config();
+    esp_wifi_deauth_sta(0);  // verbundene Maschine sofort trennen
+    ESP_LOGW(TAG, "Maschinen-WLAN %s: neues Passwort, Maschine muss neu gekoppelt werden", s_ap_ssid);
 }
 
 bool net_home_connected(void) { return s_home_connected; }
@@ -357,6 +406,7 @@ void net_mdns_set_txt(const char *key, const char *value)
 esp_err_t net_start(void)
 {
     init_identity();
+    load_ap_ssid();
     load_ap_password();
     char dev_ssid[33] = "", dev_pass[65] = "";
 #if CONFIG_RL_DEVELOPER_MODE

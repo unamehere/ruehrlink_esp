@@ -43,6 +43,7 @@ static const int API_SUPPORTED[] = {1};
 static const char *const FEATURES[] = {
     "machine",          // POST /machine/program, /machine/stop
     "machine.onboard",  // POST /machine/onboard
+    "machine.repair",   // POST /machine/repair (Maschine neu koppeln, ohne Werksreset)
     "scale",            // POST /scale/watch, WS weight
     "scale.tare",       // POST /scale/tare
     "sequence",         // /sequence/start|abort, GET /sequence, WS seq
@@ -297,7 +298,7 @@ static esp_err_t h_info(httpd_req_t *req)
     appliance_get_status(&st);
     const appliance_caps_t *c = appliance_caps();
     cJSON *a = cJSON_AddObjectToObject(o, "appliance");
-    cJSON_AddBoolToObject(a, "paired", st.connected);  // TODO: dauerhaft merken, sobald es die Kopplung gibt
+    cJSON_AddBoolToObject(a, "paired", appliance_paired() || st.connected);
     cJSON_AddBoolToObject(a, "connected", st.connected);
     if (c) {
         cJSON *k = cJSON_AddObjectToObject(a, "caps");
@@ -523,6 +524,21 @@ static esp_err_t h_onboard(httpd_req_t *req)
     if (!authorized(req)) return ESP_OK;
     esp_err_t err = appliance_onboard();
     if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "busy");
+    if (err != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(err));
+    return send_json(req, "202 Accepted", cJSON_CreateObject());
+}
+
+// Maschine neu koppeln: Kopplung vergessen, Heim-WLAN, App-Kopplungen und Rezepte bleiben.
+// Danach führt die App durch die Kopplung (POST /machine/onboard).
+static esp_err_t h_repair(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;
+    appliance_status_t st;
+    appliance_get_status(&st);
+    if (sequencer_active() || st.active) return send_error(req, "409 Conflict", "busy");
+    esp_err_t err = appliance_forget();
+    if (err == ESP_ERR_INVALID_STATE) return send_error(req, "409 Conflict", "busy");
+    if (err == ESP_ERR_NOT_SUPPORTED) return send_error(req, "501 Not Implemented", "not_supported");
     if (err != ESP_OK) return send_error(req, "500 Internal Server Error", esp_err_to_name(err));
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
@@ -957,6 +973,7 @@ esp_err_t api_start(void)
         {.uri = "/api/v1/scale/watch", .method = HTTP_POST, .handler = h_scale_watch},
         {.uri = "/api/v1/scale/tare", .method = HTTP_POST, .handler = h_scale_tare},
         {.uri = "/api/v1/machine/onboard", .method = HTTP_POST, .handler = h_onboard},
+        {.uri = "/api/v1/machine/repair", .method = HTTP_POST, .handler = h_repair},
         {.uri = "/api/v1/sequence/start", .method = HTTP_POST, .handler = h_seq_start},
         {.uri = "/api/v1/sequence/abort", .method = HTTP_POST, .handler = h_seq_abort},
         {.uri = "/api/v1/sequence", .method = HTTP_GET, .handler = h_seq_get},

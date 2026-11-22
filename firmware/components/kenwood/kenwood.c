@@ -331,6 +331,18 @@ static esp_err_t onboard(void)
     return ESP_OK;
 }
 
+// Maschine neu koppeln (POST /machine/repair): Die Maschine kennt Name und Passwort unseres WLANs.
+// Wir vergeben ein neues Passwort (der Name bleibt, F18), trennen sie und vergessen das Zertifikat
+// ihrer Waage. Bis zur nächsten Kopplung (onboard) kommt sie nicht mehr herein.
+static esp_err_t forget(void)
+{
+    if (s_onboarding) return ESP_ERR_INVALID_STATE;
+    kenwood_scale_forget();
+    net_ap_renew_password();
+    kenwood_check_alive();  // Verbindung sofort als getrennt erkennen, nicht erst nach dem Timeout
+    return ESP_OK;
+}
+
 // ---------------------------------------------------------------------------
 // Empfang
 
@@ -540,6 +552,7 @@ static const appliance_driver_t s_driver = {
     .send_program = send_program,
     .stop = stop,
     .onboard = onboard,
+    .forget = forget,
     .scale_watch = kenwood_scale_watch,
 };
 
