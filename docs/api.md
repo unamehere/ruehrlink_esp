@@ -144,6 +144,10 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 - **Name des Maschinen-WLANs** (`Ruehrlink-XXXX`): wird beim ersten Start gebildet und im NVS festgeschrieben;
   danach ändert ihn kein Update mehr (auch nicht bei einer Umbenennung des Produkts). Brücken ohne Eintrag
   (bis Firmware 0.4.0) schreiben beim ersten Start den bisherigen Namen fest. Nur der Werksreset löscht ihn.
+- `storage`: eingehängter Speicher. `backend` = `"sd"` (microSD) oder `"flash"` (Rückfall ohne lesbare Karte:
+  SD-Emulation im internen Flash, ca. 10 MB), `totalKB`/`freeKB` gelten für genau diesen Speicher. Ist gar nichts
+  eingehängt, `backend: "none"` ohne Größen. Steckt beim Start eine leere Karte und liegen Daten im Flash,
+  kopiert die Brücke sie einmal auf die Karte (der Flash bleibt unverändert).
 - `appliance.paired`: seit 0.4.1 dauerhaft gemerkt – `true` ab der ersten Verbindung der Maschine, bis zu
   `POST /machine/repair` oder Werksreset. Vorher war es gleich `connected`.
 
