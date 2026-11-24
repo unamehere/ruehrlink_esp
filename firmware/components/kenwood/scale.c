@@ -67,7 +67,6 @@ static bool s_try_p256;  // verify_cb lief → voller Handshake, nicht wiederauf
 // Zertifikat (Trust on first use)
 
 static mbedtls_x509_crt s_chain;  // nur Platzhalter: mbedTLS verlangt eine CA-Kette, geprüft wird in verify_cb
-static bool s_chain_loaded;
 static uint8_t *s_pin;
 static size_t s_pin_len;
 static bool s_pin_loaded;
@@ -126,12 +125,11 @@ static int verify_cb(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flag
 
 static esp_err_t tls_attach(void *conf)
 {
-    if (!s_chain_loaded) {
-        mbedtls_x509_crt_init(&s_chain);
-        if (mbedtls_x509_crt_parse(&s_chain, setup_cert_start, setup_cert_end - setup_cert_start) != 0) {
-            return ESP_FAIL;
-        }
-        s_chain_loaded = true;
+    // Bei jeder Verbindung neu einlesen (CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT gibt die Kette nach dem Handshake frei)
+    mbedtls_x509_crt_free(&s_chain);
+    mbedtls_x509_crt_init(&s_chain);
+    if (mbedtls_x509_crt_parse(&s_chain, setup_cert_start, setup_cert_end - setup_cert_start) != 0) {
+        return ESP_FAIL;
     }
     load_pin();
     mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);

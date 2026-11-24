@@ -111,6 +111,7 @@ static void set_connected(bool on)
     if (!on) s_ws_fd = -1;
     else s_connect_count++;
     ESP_LOGI(TAG, "%s", on ? "*** Maschine verbunden ***" : "Maschine getrennt");
+    led_set_connected(on);
     appliance_set_status(&s_st);
 }
 
@@ -231,7 +232,6 @@ static esp_err_t stop(void)
 // Zertifikat (Drop Kitchen, CN 192.168.4.1, certs/setup_server.pem). Wir vertrauen genau diesem
 // einen Zertifikat, Byte für Byte; nur die Zeitprüfung entfällt (abgelaufen, Brücke ohne Uhr).
 static mbedtls_x509_crt s_pin;
-static bool s_pin_loaded;
 
 static int pin_verify(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags)
 {
@@ -243,12 +243,12 @@ static int pin_verify(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *fla
 
 static esp_err_t pin_attach(void *conf)
 {
-    if (!s_pin_loaded) {
-        mbedtls_x509_crt_init(&s_pin);
-        if (mbedtls_x509_crt_parse(&s_pin, setup_cert_start, setup_cert_end - setup_cert_start) != 0) {
-            return ESP_FAIL;
-        }
-        s_pin_loaded = true;
+    // Bei jeder Verbindung neu einlesen: CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT gibt die CA-Kette nach dem
+    // Handshake frei – ein einmal geladenes Zertifikat wäre ab der zweiten Verbindung leer (/join scheiterte).
+    mbedtls_x509_crt_free(&s_pin);   // nach der Freigabe genullt, doppelt freigeben ist unkritisch
+    mbedtls_x509_crt_init(&s_pin);
+    if (mbedtls_x509_crt_parse(&s_pin, setup_cert_start, setup_cert_end - setup_cert_start) != 0) {
+        return ESP_FAIL;
     }
     mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(conf, &s_pin, NULL);
