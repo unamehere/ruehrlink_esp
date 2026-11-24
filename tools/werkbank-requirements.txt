@@ -1,0 +1,8 @@
+# Werkbank (tools/werkbank.py): python -m venv C:/git/venvs/ruehrlink-werkbank, dann pip install -r tools/werkbank-requirements.txt
+segno==1.6.6
+esptool>=4.8,<5
+pyserial>=3.5
+pillow>=10
+esp-idf-nvs-partition-gen>=0.1
+pywin32>=306; sys_platform == 'win32'
+bleak>=0.22
