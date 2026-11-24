@@ -1,12 +1,11 @@
-// Freikoch Brücke – Einstiegspunkt
+// Rührlink – Einstiegspunkt
 //
 // main.c verdrahtet nur die Module (components/*) und enthält keine eigene Logik.
 // Modulübersicht: docs/architektur.md
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "esp_log.h"
+#include "esp_heap_caps.h"
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_event.h"
@@ -19,11 +18,12 @@
 #include "led.h"
 #include "net.h"
 #include "provision.h"
+#include "recipes.h"
 #include "sequencer.h"
 #include "storage.h"
 #include "update.h"
 
-static const char *TAG = "freikoch";
+static const char *TAG = "ruehrlink";
 
 static void init_nvs(void)
 {
@@ -35,24 +35,40 @@ static void init_nvs(void)
     ESP_ERROR_CHECK(err);
 }
 
-// Vorläufiger Test, dass der Speicher Neustarts übersteht. Fliegt raus, sobald die
-// Rezeptablage steht.
-static void storage_smoke_test(void)
+#if CONFIG_RL_RAM_LOG
+static void alloc_failed(size_t size, uint32_t caps, const char *function_name)
 {
-    const char *path = STORAGE_ROOT "/boot_count.txt";
-    char *old = storage_read(path, 32, NULL);
-    int count = old ? atoi(old) : 0;
-    free(old);
-    char buf[16];
-    int n = snprintf(buf, sizeof(buf), "%d", count + 1);
-    if (storage_write(path, buf, n) == ESP_OK) {
-        ESP_LOGI(TAG, "Start Nr. %d (aus %s)", count + 1, path);
-    }
+    ESP_LOGE("ram", "FEHLGESCHLAGEN: %u Byte (caps 0x%lx) in %s, frei intern %u, groesster Block %u",
+             (unsigned)size, (unsigned long)caps, function_name ? function_name : "?",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 }
+
+static void log_ram(const char *wann)
+{
+    ESP_LOGI("ram", "[%s] intern frei %u KB, Tiefststand %u KB, groesster Block %u KB",
+             wann,
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
+#if CONFIG_SPIRAM
+    size_t ps_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    size_t ps_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+    ESP_LOGI("ram", "[%s] PSRAM belegt %u KB, Spitze %u KB",
+             wann,
+             (unsigned)((ps_total - heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) / 1024),
+             (unsigned)((ps_total - ps_min) / 1024));
+#endif
+}
+#endif
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Freikoch Bruecke startet");
+    ESP_LOGI(TAG, "Ruehrlink startet");
+#if CONFIG_RL_RAM_LOG
+    heap_caps_register_failed_alloc_callback(alloc_failed);
+    log_ram("Start");
+#endif
     init_nvs();
     update_init();
     factory_check_power_cycles();
@@ -60,7 +76,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     if (storage_init() == ESP_OK) {
-        storage_smoke_test();
+        recipes_init();
     } else {
         // Ohne Speicher läuft die Brücke weiter (manuelle Steuerung), nur ohne Rezepte.
         ESP_LOGE(TAG, "Speicher nicht verfuegbar");
@@ -72,7 +88,13 @@ void app_main(void)
     api_start();
     provision_start();
 
+#if CONFIG_RL_RAM_LOG
+    log_ram("alles gestartet");
+#endif
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
+#if CONFIG_RL_RAM_LOG
+        log_ram("laufend");
+#endif
     }
 }

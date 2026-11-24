@@ -1,0 +1,59 @@
+# Änderungen – Rührlink Firmware (Box)
+
+Neueste Version oben. Für Nutzer geschrieben; Technisches nur, wo es für Updates wichtig ist.
+Einträge kommen mit jeder Änderung unter **Unveröffentlicht** und wandern beim Versionssprung in die neue Version.
+Aus diesem Changelog entstehen die Notizen der GitHub-Releases (siehe [docs/updates.md](docs/updates.md)).
+Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern wie F17 verweisen auf
+`user_feedback/fehlerliste.md`. Die App hat ein eigenes Changelog (`ruehrlink_app/CHANGELOG.md`).
+
+## Unveröffentlicht
+
+## 0.3.3 – 15.11.2026
+
+### Geändert
+- Waage verbindet sich etwa doppelt so schnell (gut 2,5 s statt 5 s).
+- Ausgeschaltete Maschine wird schneller erkannt: spätestens nach etwa 8 s statt bis zu 20 s; bei offener Waage
+  meist nach wenigen Sekunden.
+- Waage liefert bis zu 20 Werte pro Sekunde an die App (vorher 10).
+
+## 0.3.2 – 15.11.2026
+
+### Neu
+- Rezepte mit Zutaten und Rührelement pro Schritt werden angenommen.
+
+## 0.3.1 – 15.11.2026
+
+### Neu
+- Waage der Maschine: Werte gehen live an die App, Tara rechnet die Box.
+- Rezepte und Fotos werden auf der Box gespeichert, alle gekoppelten Handys sehen dieselben.
+- Programme: Nach dem Abkühlen unter 60 °C wird die gewünschte schnellere Stufe erneut gesendet (B1).
+
+### Behoben
+- Bluetooth wird nach der Einrichtung wirklich abgeschaltet; damit auch kein Absturz mehr nach 10 min (F3, F17).
+- Nach einem Stromausfall während des Speicherns bleiben keine halb geschriebenen Dateien zurück.
+
+## 0.3.0 – 15.11.2026
+
+### Geändert
+- Das Produkt heißt **Rührlink** (vorher Freikoch).
+
+## 0.2.0 – 15.11.2026
+
+### Neu
+- Firmware-Update über die App: nur signierte Firmware, Prüfsumme, Probebetrieb nach dem Neustart, bei Problemen
+  automatisch zurück zur alten Version. Nie während ein Programm läuft. **Sicherheit**
+- Warmhalten der Maschine wird gemeldet (F4).
+
+## 0.1.0 – 12.–13.11.2026
+
+### Neu
+- Erste Version: Box spielt für die Kenwood Cooking Chef XL (KCL95) die abgeschaltete Cloud, strikt lokal im
+  Heim-WLAN.
+- Maschine koppeln (mit Zertifikats-Pinning), Status, Temperatur, Zeit und Stufe senden; Start am Drehknopf.
+- Programme (feste Abläufe) laufen auf der Box.
+- Einrichtung per Bluetooth, weitere Handys koppeln per Bestätigung, Werksreset, Status-LED.
+
+### Behoben
+- Ausgeschaltete Maschine wird in Sekunden statt nach einer Minute erkannt (F7).
+- Kopf auf/zu und Ruhephasen brechen Programme nicht mehr ab (F9–F12).
+- Hinweis „Schüssel einsetzen“ leuchtete dauerhaft (F1, F2).

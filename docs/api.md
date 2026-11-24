@@ -1,12 +1,12 @@
-# Lokale App-API der Freikoch Brücke (v1, Entwurf)
+# Lokale App-API des Rührlink (v1, Entwurf)
 
 Die API ist nur im Heim-WLAN erreichbar. Sie ist die einzige Schnittstelle zwischen
-Brücke und App und wird in beiden Repos (`freikoch_esp`, `freikoch_app`) gegen diese Datei
+Brücke und App und wird in beiden Repos (`ruehrlink_esp`, `ruehrlink_app`) gegen diese Datei
 entwickelt. Änderungen hier zuerst, dann im Code.
 
 ## Finden
 
-- mDNS-Dienst `_freikoch._tcp`, Port 80
+- mDNS-Dienst `_ruehrlink._tcp`, Port 80
 - TXT-Records: `id=<geräte-id>`, `fw=<version>`, `api=1`, `name=<anzeigename>`
 
 ## Koppeln & Anmelden
@@ -38,6 +38,8 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 | GET | `/api/v1/state` | aktueller Maschinenstatus (wie WS `status`, geräteneutrale Feldnamen) |
 | POST | `/api/v1/machine/program` | Einzelwerte senden `{"temperature":°C,"time":s,"speed":n}` |
 | POST | `/api/v1/machine/stop` | Programm stoppen |
+| POST | `/api/v1/scale/watch` | Waage liefern lassen `{"seconds":30}` (max. 300); App erneuert alle ~10 s, solange sie sie zeigt. 409 `not_connected`, 501 `no_scale` |
+| POST | `/api/v1/scale/tare` | aktuelles Gewicht als Null → `{"g":0,"tare":g}`; 409 `no_weight` ohne Messwert |
 | POST | `/api/v1/sequence/start` | Programm starten `{"programId":"…"}` oder inline `{"name":"…","steps":[…]}` |
 | POST | `/api/v1/sequence/abort` | laufendes Programm abbrechen (stoppt auch die Maschine) |
 | GET | `/api/v1/sequence` | Zustand des Programms (wie WS `seq`), z. B. nach dem Wiederverbinden der App |
@@ -60,9 +62,11 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 ```json
 {
   "id": "98C0",
-  "name": "Freikoch Brücke",
+  "name": "Rührlink",
   "fw": "0.1.0",
   "api": 1,
+  "apiSupported": [1],
+  "features": ["scale", "scale.tare", "recipes", "media", "sequence", "programs", "ota"],
   "storage": {"backend": "sd", "totalKB": 30000000, "freeKB": 29000000},
   "appliance": {
     "paired": true,
@@ -86,6 +90,11 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
   }
 }
 ```
+
+- `api`: Hauptversion dieser API. `apiSupported`: alle Hauptversionen, die die Brücke gerade spricht.
+- `features`: was diese Firmware kann. Die App schaltet Funktionen danach frei; neue Fähigkeiten kommen nur
+  hinzu, innerhalb eines `api` verschwindet keine. Regeln siehe [`updates.md`](updates.md#versionen-und-kompatibilität).
+  *(TODO: in der Firmware noch nicht umgesetzt.)*
 
 ### Einzelheiten
 
@@ -126,6 +135,42 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 - `GET /api/v1/programs` – `{"programs":[{"id":"eischnee","name":"Eischnee","steps":[…]}]}` aus
   `/data/programs/*.json`. Programme anlegen geht vorerst nur inline über `/sequence/start`.
 
+### Rezepte und Fotos (Stand 15.11.)
+
+Die Brücke ist die Quelle der Wahrheit, jede App hält eine Kopie und gleicht sie über Revisionen ab.
+Jede Änderung (Anlegen, Ändern, Löschen) bekommt die nächste **Bibliotheks-Revision** `rev` (1, 2, 3 …);
+das gespeicherte Rezept trägt sie als eigenes `rev`.
+
+- `GET /api/v1/recipes?since=<rev>` – `{"rev":<aktuell>,"changed":[<ganze Rezepte mit rev > since>],"deleted":["<id>",…]}`.
+  Ohne `since` (bzw. `0`) kommen alle Rezepte und keine Löschungen. Ungeordnet. Die Antwort wird gestreamt
+  (`Transfer-Encoding: chunked`) und kann groß werden – die App liest sie ganz und merkt sich danach `rev`.
+  Ist `rev` der Antwort **kleiner** als der Stand der App (andere Brücke, Speicher getauscht), holt die App alles neu (`since=0`).
+- `GET /api/v1/recipes/{id}` – ein Rezept, Header `ETag: "<rev>"`. `404 {"error":"recipe"}` bzw. `{"error":"deleted"}`.
+- `PUT /api/v1/recipes/{id}` – Body = Rezept (JSON, **max. 16 KB**), Header `If-Match: <rev>`:
+  `0` = neu (darf es noch nicht geben; ein gelöschtes Rezept zählt als nicht vorhanden),
+  `n` = ändern, nur wenn die Brücke noch Revision `n` hat; ohne Header wird ohne Prüfung überschrieben
+  (nur für „trotzdem speichern“ gedacht – die App schickt immer `If-Match`).
+  `id` = Kleinbuchstaben, Ziffern, `-`, max. 40 Zeichen (die App nimmt eine UUID v4).
+  Die Brücke setzt `v`, `id`, `rev` und `updated` selbst (`updated` aus ihrer Uhr, ohne gestellte Uhr wird das der App
+  übernommen) und behält unbekannte Felder. Antwort `200 {"id","rev","updated"}`, danach WS `recipes`.
+  Fehler: `412 {"error":"rev","rev":<aktuell, 0 = gibt es nicht>,"deleted":bool}` (inzwischen geändert/gelöscht),
+  `400 {"error":"id|if_match|body|json|title|servings|photo|tags|ingredients|steps"}`, `413 {"error":"size"}`,
+  `503 {"error":"memory"}` (Brücke hat gerade zu wenig RAM, später noch einmal), `500 {"error":"storage"}`.
+- `DELETE /api/v1/recipes/{id}` – `If-Match` wie oben (optional). Antwort `200 {"id","rev","deleted":true}`, WS `recipes`;
+  `404`, `412` wie oben. Gelöschte Rezepte bleiben als Löschvermerk (Tombstone) stehen, damit andere Apps sie über
+  `since` erfahren. (Aufräumen alter Tombstones: später.)
+- `PUT /api/v1/media/{sha256}` – Body = Foto als **WebP** (`Content-Type: image/webp`, mit `Content-Length`, **max. 1 MB**),
+  `{sha256}` = SHA-256 des Inhalts, 64 Hex-Zeichen klein. Die Brücke schreibt in Blöcken direkt auf den Speicher,
+  prüft Größe, WebP-Kennung (`RIFF…WEBP`) und Prüfsumme und macht das Foto erst dann sichtbar. Antwort
+  `201 {"sha256"}`, `200` wenn es schon da war. Fehler: `400 {"error":"sha256|format|size|upload"}`, `413 {"error":"size"}`,
+  `507 {"error":"full"}` (Speicher fast voll), `500 {"error":"storage"}`. Während des Uploads (ca. 1–3 s) wartet die API.
+  Reihenfolge in der App: erst das Foto hochladen, dann das Rezept speichern, das darauf verweist.
+- `GET /api/v1/media/{sha256}` – das Foto (`image/webp`), unveränderlich: die App speichert es dauerhaft zwischen.
+  `404 {"error":"media"}`. Nicht mehr benutzte Fotos werden vorerst nicht gelöscht.
+
+Begrenzungen wegen des knappen RAM (ESP32-C6 ohne PSRAM): Ein Rezept wird ganz gelesen und geprüft (≤ 16 KB +
+cJSON-Baum, sofort wieder freigegeben), alles andere wird gestreamt (Blöcke von 1–2 KB).
+
 `speeds` = wählbare Stufen in der Reihenfolge am Gerät (`group`: off/stir/continuous); gesendet wird `speed = v`,
 der Status meldet `speedSet = v`. Unbekannter Wert → App zeigt die Zahl.
 `hotTemp`/`hotSpeedMax`: Ab `hotTemp` °C (Soll- oder Ist-Temperatur) sind in Programmen nur Dauerstufen bis
@@ -140,7 +185,7 @@ Brücke → App:
 
 ```json
 {"t":"status","d":{"connected":true,"running":false,"active":false,"keepWarm":false,"heating":false,"hot":false,"bowlFitted":true,"lidClosed":true,"bowlTemp":23,"tempSet":0,"speedSet":0,"remainingS":0}}
-{"t":"weight","d":{"g":251.4}}
+{"t":"weight","d":{"g":251.4,"gross":1460.2}}
 {"t":"seq","d":{"programId":"dinkelteig","name":"Dinkelteig kneten","step":2,"of":4,"label":"Kneten","state":"running","reason":null,"stepRemainingS":240}}
 {"t":"ack","d":{"cmd":"setProgramme","ok":true}}
 {"t":"recipes","d":{"rev":42}}
@@ -156,7 +201,7 @@ Brücke → App:
   `state`: `idle` · `waiting_start` (Knopf an der Maschine drücken) · `running` · `paused` · `done` · `aborted`.
   `reason`: `null` · `press_start` · `lid_open` · `bowl_missing` · `machine_paused` (am Gerät angehalten) ·
   `disconnected` · `no_ack` (Maschine bestätigt nicht) · `user` (Abbruch per App) · `timeout` (30 min pausiert).
-- `weight` max. 10 Nachrichten/s.
+- `weight`: `g` = netto nach Tara (rechnet die Brücke, alle Apps gleich), `gross` = Wert der Maschine. Nur solange die Waage läuft (`scale/watch` oder bis 120 s nach dem Hochklappen des Kopfs), max. 10 Nachrichten/s, mindestens 1/s. Die Brücke holt die Werte über eine eigene TLS-Verbindung vom Waage-Server der Maschine (`wss://<Maschine>:443/`).
 - `recipes` signalisiert, dass sich die Bibliothek geändert hat → App holt `GET /recipes?since=`.
 
 App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"temperature":0,"time":120,"speed":2}}`.
@@ -167,6 +212,7 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
 
 ```json
 {
+  "v": 1,
   "id": "uuid",
   "rev": 7,
   "updated": "2026-11-12T10:00:00Z",
@@ -174,14 +220,39 @@ App → Brücke: dieselben Befehle wie HTTP, z. B. `{"t":"program","d":{"tempera
   "servings": 4,
   "photo": "sha256",
   "tags": ["Brot", "Teig"],
-  "ingredients": [{"amount": 500, "unit": "g", "name": "Dinkelmehl 630"}],
+  "ingredients": [
+    {"amount": 500, "unit": "g", "name": "Dinkelmehl 630"},
+    {"amount": 330, "unit": "g", "name": "Wasser"},
+    {"amount": 10, "unit": "g", "name": "Salz"}
+  ],
   "steps": [
-    {"text": "Mehl in die Schüssel wiegen.", "photo": null, "weigh": {"target": 500, "unit": "g"}},
-    {"text": "Kneten.", "machine": {"programId": "dinkelteig"}},
+    {"text": "Mehl und Wasser in die Schüssel wiegen.", "tool": "knethaken",
+     "ingredients": [{"amount": 500, "unit": "g", "name": "Dinkelmehl 630"},
+                     {"amount": 330, "unit": "g", "name": "Wasser"}]},
+    {"text": "Salz dazu und kneten.", "ingredients": [{"amount": 10, "unit": "g", "name": "Salz"}],
+     "machine": {"programId": "dinkelteig"}},
     {"text": "Kurz rühren.", "machine": {"temperature": 0, "time": 60, "speed": 2}}
   ]
 }
 ```
+
+Pflicht ist nur `title` (1–200 Zeichen). `servings` 1–1000, `photo` = SHA-256 eines Fotos oder `null`.
+
+Ein Schritt hat `text` und optional:
+- `ingredients` – was in diesem Schritt dazukommt (max. 50). Zutaten in Gramm/Kilogramm wiegt der Kochmodus
+  nacheinander mit der Waage ab (je Zutat eine Tara); andere Einheiten werden nur angezeigt.
+- `tool` – Werkzeug: `kHaken`, `flexi`, `schneebesen`, `knethaken`, `kochRuehrelement`, `daempfeinsatz`
+  (unbekannte Werte ignoriert die App). Der Kochmodus zeigt „… einsetzen“, wenn es sich ändert.
+- `machine` – `programId` eines Programms der Brücke **oder** Einzelwerte wie bei `/machine/program`.
+
+Ein Schritt darf Zutaten, Werkzeug **und** Maschine zugleich haben („Zwiebel und Öl anbraten“).
+Das `ingredients` oben ist die **zusammengezählte** Liste aller Schritte (gleicher Name und gleiche Einheit
+addiert). Die App erzeugt sie beim Speichern; sie steht nur da, damit z. B. eine Einkaufsliste nicht die Schritte
+durchsuchen muss. Mengen beziehen sich auf `servings`; `amount` 0 = ohne Mengenangabe („Salz“).
+
+Altes Format (bis App 0.3.2): Zutaten nur oben, Schritte mit `weigh: {"target","unit"}`. Die App wandelt es beim
+Lesen um (passende Zutat zum `weigh`-Schritt, übrige in den ersten Schritt) und speichert es beim nächsten
+Bearbeiten im neuen Format. Die Brücke nimmt beide Formate an.
 
 ### Programm
 

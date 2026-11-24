@@ -5,7 +5,7 @@
 // Der Einrichtungs-Code (PoP) wird beim ersten Start pro Gerät erzeugt und steht als
 // QR-Code auf dem Etikett. Ablauf und QR-Format: docs/architektur.md.
 //
-// Zusätzlicher Endpunkt "freikoch": liefert der App Token, Geräte-ID und Hostnamen.
+// Zusätzlicher Endpunkt "ruehrlink": liefert der App Token, Geräte-ID und Hostnamen.
 #pragma once
 
 #include "esp_err.h"

@@ -10,8 +10,8 @@
     $PY tools/ota.py upload --host 192.168.178.50
 
 Voraussetzung: Die Brücke läuft schon mit einer OTA-fähigen Firmware (einmal per USB flashen).
-Der Token landet in ~/.freikoch/bridges.json – nie im Repo. Signiert wird mit dem Schlüssel aus
-firmware_sign.py (~/.freikoch/firmware-signing-key.pem bzw. FREIKOCH_SIGNING_KEY).
+Der Token landet in ~/.ruehrlink/bridges.json – nie im Repo. Signiert wird mit dem Schlüssel aus
+firmware_sign.py (~/.ruehrlink/firmware-signing-key.pem bzw. RUEHRLINK_SIGNING_KEY).
 """
 import argparse
 import hashlib
@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import firmware_sign  # noqa: E402
 
-TOKENS = Path.home() / ".freikoch" / "bridges.json"
+TOKENS = Path.home() / ".ruehrlink" / "bridges.json"
 
 
 def request(host, method, path, body=None, headers=None, timeout=10):

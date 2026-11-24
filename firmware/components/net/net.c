@@ -27,9 +27,9 @@ static const char *TAG = "net";
 #define RECONNECT_MAX_MS 60000
 
 static char s_id[5];               // "98C0"
-static char s_ap_ssid[33];         // "Freikoch-98C0"
+static char s_ap_ssid[33];         // "Ruehrlink-98C0"
 static char s_ap_pass[64];
-static char s_hostname[20];        // "freikoch-98c0"
+static char s_hostname[20];        // "ruehrlink-98c0"
 
 static esp_netif_t *s_ap_netif;
 static esp_netif_t *s_sta_netif;
@@ -49,8 +49,8 @@ static void init_identity(void)
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(s_id, sizeof(s_id), "%02X%02X", mac[4], mac[5]);
-    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Freikoch-%s", s_id);
-    snprintf(s_hostname, sizeof(s_hostname), "freikoch-%02x%02x", mac[4], mac[5]);
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Ruehrlink-%s", s_id);
+    snprintf(s_hostname, sizeof(s_hostname), "ruehrlink-%02x%02x", mac[4], mac[5]);
 }
 
 // Pro Gerät zufällig, beim ersten Start erzeugt (siehe docs/architektur.md).
@@ -76,7 +76,7 @@ static void load_ap_password(void)
 // Sie liegen nie in einer Datei im Repo. Ab der Bluetooth-Einrichtung nicht mehr nötig.
 //   dev_ap_ssid / dev_ap_pass     Maschinen-WLAN überschreiben (Maschine schon anders gekoppelt)
 //   dev_home_ssid / dev_home_pass Heim-WLAN einmalig übernehmen (danach gelöscht)
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
 static void load_dev_overrides(char *home_ssid, size_t ssid_len, char *home_pass, size_t pass_len)
 {
     nvs_handle_t h;
@@ -244,7 +244,7 @@ void net_ap_use_default(void)
         nvs_close(h);
     }
     if (!had) return;
-    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Freikoch-%s", s_id);
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "Ruehrlink-%s", s_id);
     load_ap_password();
     wifi_config_t ap = {0};
     esp_wifi_get_config(WIFI_IF_AP, &ap);
@@ -340,18 +340,18 @@ static void start_mdns(void)
 {
     ESP_ERROR_CHECK(mdns_init());
     mdns_hostname_set(s_hostname);
-    mdns_instance_name_set("Freikoch Bruecke");
+    mdns_instance_name_set("Ruehrlink");
     mdns_txt_item_t txt[] = {
         {"id", s_id},
         {"fw", esp_app_get_description()->version},
         {"api", "1"},
     };
-    mdns_service_add(NULL, "_freikoch", "_tcp", 80, txt, sizeof(txt) / sizeof(txt[0]));
+    mdns_service_add(NULL, "_ruehrlink", "_tcp", 80, txt, sizeof(txt) / sizeof(txt[0]));
 }
 
 void net_mdns_set_txt(const char *key, const char *value)
 {
-    mdns_service_txt_item_set("_freikoch", "_tcp", key, value);
+    mdns_service_txt_item_set("_ruehrlink", "_tcp", key, value);
 }
 
 esp_err_t net_start(void)
@@ -359,7 +359,7 @@ esp_err_t net_start(void)
     init_identity();
     load_ap_password();
     char dev_ssid[33] = "", dev_pass[65] = "";
-#if CONFIG_FK_DEVELOPER_MODE
+#if CONFIG_RL_DEVELOPER_MODE
     load_dev_overrides(dev_ssid, sizeof(dev_ssid), dev_pass, sizeof(dev_pass));
 #endif
 

@@ -17,3 +17,8 @@ Thumbs.db
 
 # absichtlich öffentliches Zertifikat für die Maschinen-Seite (siehe README dort)
 !firmware/components/kenwood/certs/*.pem
+
+# Entwicklernotizen: nur lokal, nicht im öffentlichen Repo (docs/api.md bleibt öffentlich)
+docs/architektur.md
+docs/testplan.md
+docs/updates.md

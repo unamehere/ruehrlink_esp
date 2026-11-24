@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -20,7 +21,7 @@ static const char *TAG = "storage";
 // ---------------------------------------------------------------------------
 // Backends – nur dieser Abschnitt unterscheidet Flash und SD.
 
-#if CONFIG_FK_STORAGE_FLASH
+#if CONFIG_RL_STORAGE_FLASH
 #include "wear_levelling.h"
 
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
@@ -38,7 +39,7 @@ static esp_err_t backend_mount(void)
 
 const char *storage_backend(void) { return "flash"; }
 
-#elif CONFIG_FK_STORAGE_SD
+#elif CONFIG_RL_STORAGE_SD
 
 static esp_err_t backend_mount(void)
 {
@@ -95,26 +96,31 @@ esp_err_t storage_mkdirs(const char *path)
 
 esp_err_t storage_write(const char *path, const void *data, size_t len)
 {
-    char tmp[PATH_MAX_LEN + 8];
+    // Zwei Stufen, damit nach einem Stromausfall klar ist, was vollständig ist:
+    //   <path>.tmp – wird gerade geschrieben (evtl. unvollständig)
+    //   <path>.new – vollständig geschrieben, nur noch nicht an seinem Platz
+    char tmp[PATH_MAX_LEN + 8], done[PATH_MAX_LEN + 8];
     if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) return ESP_ERR_INVALID_ARG;
+    snprintf(done, sizeof(done), "%s.new", path);
 
     FILE *f = fopen(tmp, "wb");
     if (!f) {
         ESP_LOGE(TAG, "%s: %s", tmp, strerror(errno));
         return ESP_FAIL;
     }
-    bool ok = fwrite(data, 1, len, f) == len;
+    bool ok = len == 0 || fwrite(data, 1, len, f) == len;
     ok = (fflush(f) == 0) && ok;
     ok = (fsync(fileno(f)) == 0) && ok;
     ok = (fclose(f) == 0) && ok;
-    if (!ok) {
+    unlink(done);
+    if (!ok || rename(tmp, done) != 0) {
         unlink(tmp);
         return ESP_FAIL;
     }
     // FAT kann nicht über eine bestehende Datei umbenennen: erst die alte löschen.
-    // Fällt genau dazwischen der Strom aus, stellt recover_tmp_files() die .tmp wieder her.
+    // Fällt genau dazwischen der Strom aus, stellt recover_tmp_files() die .new wieder her.
     unlink(path);
-    if (rename(tmp, path) != 0) {
+    if (rename(done, path) != 0) {
         ESP_LOGE(TAG, "rename %s: %s", path, strerror(errno));
         return ESP_FAIL;
     }
@@ -153,8 +159,10 @@ esp_err_t storage_remove(const char *path)
 }
 
 // Nach einem Stromausfall:
-//   <x>.tmp ohne <x>  → war fertig geschrieben, nur nicht umbenannt → übernehmen
-//   <x>.tmp neben <x> → Schreiben wurde unterbrochen → alte Fassung behalten
+//   <x>.tmp → Schreiben wurde unterbrochen (evtl. unvollständig) → löschen, alte Fassung bleibt
+//   <x>.new → war fertig geschrieben, nur nicht an seinem Platz → übernehmen (ersetzt <x>)
+// Früher galt „.tmp ohne <x> = fertig“ – das stimmte nicht für neu angelegte Dateien:
+// eine halb geschriebene neue Datei wäre übernommen worden.
 static void recover_tmp_files(const char *dir)
 {
     DIR *d = opendir(dir);
@@ -169,14 +177,15 @@ static void recover_tmp_files(const char *dir)
             continue;
         }
         size_t n = strlen(path);
-        if (n < 5 || strcmp(path + n - 4, ".tmp") != 0) continue;
-        memcpy(final_path, path, n - 4);
-        final_path[n - 4] = '\0';
-        struct stat st;
-        if (stat(final_path, &st) == 0) {
+        if (n < 5) continue;
+        if (strcasecmp(path + n - 4, ".tmp") == 0) {
             unlink(path);
-        } else if (rename(path, final_path) == 0) {
-            ESP_LOGW(TAG, "wiederhergestellt: %s", final_path);
+            ESP_LOGW(TAG, "unvollstaendig, verworfen: %s", path);
+        } else if (strcasecmp(path + n - 4, ".new") == 0) {
+            memcpy(final_path, path, n - 4);
+            final_path[n - 4] = '\0';
+            unlink(final_path);
+            if (rename(path, final_path) == 0) ESP_LOGW(TAG, "wiederhergestellt: %s", final_path);
         }
     }
     closedir(d);
