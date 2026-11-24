@@ -1,16 +1,12 @@
 #include "led.h"
 
-#include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
-#if CONFIG_RL_LED_WS2812
-#include "led_strip.h"
-#else
 #include "driver/ledc.h"
-#endif
+#include "strip.h"
 
 static const char *TAG = "led";
 
@@ -20,34 +16,7 @@ static volatile bool s_connected;
 static TaskHandle_t s_task;
 
 // ---------------------------------------------------------------------------
-// Ausgabe je nach Bauform
-
-#if CONFIG_RL_LED_WS2812
-
-static led_strip_handle_t s_strip;
-
-static void show(uint8_t r, uint8_t g, uint8_t b)
-{
-    if (!s_strip) return;
-    uint32_t l = s_level;
-    led_strip_set_pixel(s_strip, 0, r * l / 255, g * l / 255, b * l / 255);
-    led_strip_refresh(s_strip);
-}
-
-static void hw_init(void)
-{
-    const led_strip_config_t cfg = {
-        .strip_gpio_num = CONFIG_RL_LED_GPIO,
-        .max_leds = 1,
-    };
-    const led_strip_rmt_config_t rmt = {.resolution_hz = 10 * 1000 * 1000};
-    if (led_strip_new_rmt_device(&cfg, &rmt, &s_strip) != ESP_OK) {
-        ESP_LOGW(TAG, "LED nicht verfuegbar");
-        s_strip = NULL;
-    }
-}
-
-#else  // CONFIG_RL_LED_RG: rot + grün über LEDC
+// Ausgabe: rot + grün über LEDC
 
 #define LED_RES   LEDC_TIMER_13_BIT   // fein genug für die stark gedimmte Daueranzeige
 #define LED_MAX   8191
@@ -102,18 +71,6 @@ static void hw_init(void)
         }
     }
     s_ok = true;
-}
-
-#endif
-
-// Streifen-Versorgung (J3) aus, solange die Firmware den Streifen nicht ansteuert.
-static void strip_off(void)
-{
-#if CONFIG_RL_STRIP_EN_GPIO >= 0
-    gpio_reset_pin(CONFIG_RL_STRIP_EN_GPIO);
-    gpio_set_direction(CONFIG_RL_STRIP_EN_GPIO, GPIO_MODE_OUTPUT);
-    gpio_set_level(CONFIG_RL_STRIP_EN_GPIO, 0);
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +131,7 @@ static void led_task(void *arg)
 
 void led_init(void)
 {
-    strip_off();
+    strip_init();   // Schüsselbeleuchtung: 5 V aus, bis sie gebraucht wird
     hw_init();
     xTaskCreate(led_task, "led", 2048, NULL, 2, &s_task);
 }

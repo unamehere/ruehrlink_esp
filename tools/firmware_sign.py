@@ -34,7 +34,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 REPO = Path(__file__).resolve().parent.parent
 PUBKEY_H = REPO / "firmware/components/update/signing_pubkey.h"
-DEFAULT_BIN = REPO / "firmware/.pio/build/bruecke-devkit/firmware.bin"
+DEFAULT_BIN = REPO / "firmware/.pio/build/ruehrlink/firmware.bin"
 API_VERSION = 1  # wie "api" in GET /api/v1/info
 
 
@@ -67,6 +67,16 @@ def image_version(image: bytes) -> str:
     if int.from_bytes(image[32:36], "little") != 0xABCD5432:
         sys.exit("Kein ESP-App-Image (esp_app_desc fehlt)")
     return image[48:80].split(bytes(1))[0].decode()
+
+
+ESP32C6_CHIP_ID = 13
+
+
+def check_chip(image: bytes):
+    """Nur Images für die Rührlink-Platine (ESP32-C6) signieren – Chip-ID steht im Image-Header (Byte 12–13)."""
+    chip = int.from_bytes(image[12:14], "little")
+    if chip != ESP32C6_CHIP_ID:
+        sys.exit(f"Image ist für Chip-ID {chip}, nicht für den ESP32-C6 ({ESP32C6_CHIP_ID}) – falscher Build?")
 
 
 def check_version(image: bytes) -> str:
@@ -104,6 +114,7 @@ def cmd_pack(a):
     """Update-Datei ruehrlink-<version>.rlfw: ZIP mit manifest.json + Image (Aufbau: docs/updates.md)."""
     key = load_key()
     image = Path(a.bin).read_bytes()
+    check_chip(image)
     version = check_version(image)
     notes = Path(a.notes_file).read_text(encoding="utf-8").strip() if a.notes_file else (a.notes or "")
     if not notes:

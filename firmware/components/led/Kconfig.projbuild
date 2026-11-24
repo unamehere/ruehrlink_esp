@@ -1,41 +1,17 @@
-menu "Ruehrlink: Status-LED"
-
-choice RL_LED_TYPE
-    prompt "Art der Status-LED"
-    default RL_LED_RG if IDF_TARGET_ESP32C6
-    default RL_LED_WS2812
-
-config RL_LED_WS2812
-    bool "RGB-LED WS2812 an einem GPIO (ESP32-S3-DevKitC-1)"
-
-config RL_LED_RG
-    bool "zwei LEDs rot + gruen (Ruehrlink-Platine, ESP32-C6)"
-    help
-        Rot und gruen je ueber einen 2N7002 an 5 V, aktiv high, gedimmt per LEDC.
-        Rot + gruen zusammen ergibt gelb.
-
-endchoice
-
-config RL_LED_GPIO
-    int "GPIO der RGB-Status-LED (WS2812)"
-    depends on RL_LED_WS2812
-    default 48
-    help
-        ESP32-S3-DevKitC-1: GPIO48.
+menu "Ruehrlink: Status-LED und Schuesselbeleuchtung"
 
 config RL_LED_R_GPIO
-    int "GPIO der roten LED"
-    depends on RL_LED_RG
+    int "Status-LED: GPIO rot"
     default 22
+    help
+        Rot und gruen je ueber einen 2N7002 an 5 V, aktiv high, gedimmt per LEDC. Rot + gruen = gelb.
 
 config RL_LED_G_GPIO
-    int "GPIO der gruenen LED"
-    depends on RL_LED_RG
+    int "Status-LED: GPIO gruen"
     default 23
 
 config RL_LED_G_SCALE
-    int "Helligkeit gruen in Prozent von rot"
-    depends on RL_LED_RG
+    int "Status-LED: Helligkeit gruen in Prozent von rot"
     range 1 100
     default 15
     help
@@ -50,12 +26,27 @@ config RL_LED_CONNECTED_PCT
         Zwischen den kurzen Signalen leuchtet gruen gedimmt, solange die Maschine verbunden ist.
         Prozent der normalen Signal-Helligkeit; 0 schaltet die Daueranzeige ab.
 
-config RL_STRIP_EN_GPIO
-    int "GPIO Schalter 5 V fuer den LED-Streifen (-1 = keiner)"
-    default 1 if IDF_TARGET_ESP32C6
-    default -1
+config RL_STRIP_DATA_GPIO
+    int "Schuesselbeleuchtung: Daten-GPIO (WS2812/SK6812)"
+    default 0
     help
-        Ruehrlink-Platine: IO1 schaltet ueber Q5/Q4 die 5 V an der Streifen-Buchse J3 (aktiv high).
-        Der Streifen wird noch nicht angesteuert; die Firmware haelt den Schalter aus.
+        Ruehrlink-Platine: IO0 -> 2N7002 -> J3 Pin 2. Der Pegelwandler invertiert (RL_STRIP_INVERT).
+
+config RL_STRIP_INVERT
+    bool "Schuesselbeleuchtung: Datensignal invertieren"
+    default y
+    help
+        Platine Rev. 3: Datenleitung ueber einen 2N7002 mit Pull-up auf 5 V - invertiert.
+
+config RL_STRIP_EN_GPIO
+    int "Schuesselbeleuchtung: GPIO 5-V-Schalter (-1 = keiner)"
+    default 1
+    help
+        Ruehrlink-Platine: IO1 schaltet ueber Q5/Q4 die 5 V an der Buchse J3 (aktiv high).
+
+config RL_STRIP_LEDS
+    int "Schuesselbeleuchtung: Anzahl LEDs"
+    range 1 300
+    default 30
 
 endmenu

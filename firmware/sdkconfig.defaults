@@ -1,9 +1,10 @@
-# Flash / PSRAM (ESP32-S3 N16R8)
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Rührlink-Platine: ESP32-C6-WROOM-1-N8, 8 MB Flash, kein PSRAM
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
+
+# Konsole über die eingebaute USB-Serial/JTAG-Schnittstelle (USB-C), nicht über UART0 (nur Testpunkte)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # WLAN: eigenes AP für die Maschine + Heim-WLAN gleichzeitig
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
@@ -29,15 +30,13 @@ CONFIG_WL_SECTOR_SIZE_4096=y
 CONFIG_MDNS_PREDEF_NETIF_AP=n
 CONFIG_MDNS_PREDEF_NETIF_ETH=n
 
-# TLS-Puffer in den PSRAM (interner RAM bleibt fuer WLAN frei)
-CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
-
 # App-API: Token schon beim WebSocket-Handshake pruefen; genug Sockets fuer Maschine + Apps
 CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT=y
 CONFIG_LWIP_MAX_SOCKETS=16
 
 # TLS-Puffer nur bei Bedarf anlegen und nach dem Handshake verkleinern (spart pro Verbindung ~15-20 KB,
-# wichtig fuer Chips ohne PSRAM wie den ESP32-C6)
+# wichtig ohne PSRAM). Achtung: DYNAMIC_FREE_CA_CERT gibt die CA-Kette nach jedem Handshake frei –
+# eigene Zertifikate bei jeder Verbindung neu einlesen (F28).
 CONFIG_ESP_TLS_CLIENT_SESSION_TICKETS=y
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y

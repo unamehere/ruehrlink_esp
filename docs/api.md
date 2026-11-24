@@ -95,8 +95,8 @@ Max. 8 gekoppelte Apps; die älteste fällt heraus.
 }
 ```
 
-`chip`: Chip der Box (`esp32s3` = DevKit, `esp32c6` = Rührlink-Platine). Eine Update-Datei muss zum Chip passen,
-sonst lehnt die Box sie gleich zu Beginn des Uploads ab.
+`chip`: Chip der Box (Rührlink-Platine: `esp32c6`; frühe Entwicklungsboxen: `esp32s3`). Eine Update-Datei muss
+zum Chip passen, sonst lehnt die Box sie gleich zu Beginn des Uploads ab.
 
 - `api`: Hauptversion dieser API. `apiSupported`: alle Hauptversionen, die die Brücke gerade spricht.
 - `features`: was diese Firmware kann. Die App schaltet Funktionen danach frei; neue Fähigkeiten kommen nur

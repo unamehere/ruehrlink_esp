@@ -1,7 +1,0 @@
-# Rührlink-Platine mit ESP32-C6-WROOM-1-N8 (wird von ESP-IDF zusätzlich zu sdkconfig.defaults gelesen)
-# 8 MB Flash, kein PSRAM (PSRAM-Zeilen aus sdkconfig.defaults gelten hier nicht)
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_8mb.csv"
-
-# Konsole über die eingebaute USB-Serial/JTAG-Schnittstelle (USB-C der Platine), nicht über UART0 (nur Testpunkte)
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

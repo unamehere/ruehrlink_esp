@@ -1,16 +1,14 @@
-// led – Status-LED der Brücke
-//
-// Zwei Bauformen (Kconfig RL_LED_TYPE):
-//   - WS2812 an einem GPIO (ESP32-S3-DevKitC-1)
-//   - zwei LEDs rot + grün (Rührlink-Platine mit ESP32-C6); gelb = beide, statt blau grün
+// led – Status-LED der Brücke (rot + grün, Rührlink-Platine; gelb = beide)
 //
 // Im Normalbetrieb aus, zeigt Ereignisse nur kurz an und geht dann wieder aus
 // (Entscheidung 12.11., nie dauerhaft an: 24.11.):
-//   blau 3× schnell   Kopplung eines Handys beginnt   (Platine: grün)
+//   grün 3× schnell   Kopplung eines Handys beginnt
 //   gelb 3×           Einrichtung / Kopplung der Maschine beginnt
 //   grün 1 s          erfolgreich
 //   rot 3×            Fehler
 // Dazwischen optional als einzige Daueranzeige: Maschine verbunden = grün, stark gedimmt (24.11.).
+//
+// Die Schüsselbeleuchtung (WS2812-Streifen an J3) steckt in strip.h.
 #pragma once
 
 #include <stdbool.h>

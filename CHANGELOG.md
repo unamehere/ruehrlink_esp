@@ -8,6 +8,24 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+## 0.6.0 – 24.11.2026
+
+**Nur noch für die Rührlink-Platine (ESP32-C6).** Frühe Entwicklungsboxen mit ESP32-S3 werden nicht mehr
+unterstützt; ein Update-Image für den falschen Chip lehnt die Box gleich zu Beginn ab.
+
+### Neu
+- Firmware für die Rührlink-Platine: 8 MB Flash, microSD per SPI, Logs und Flashen über USB-C.
+- Status-LED rot/grün: Signale nur noch kurz; einzige Daueranzeige ist ein schwaches Grün, solange die Maschine
+  verbunden ist.
+- Werksdaten: Einrichtungs-Code und Seriennummer werden bei der Herstellung gespeichert und überstehen Werksreset
+  und Updates; das Etikett bleibt gültig.
+- `/api/v1/info` meldet den Chip (`chip`).
+- Vorbereitet: Treiber für eine WS2812-Schüsselbeleuchtung an der Buchse der Platine (noch nicht in der App).
+
+### Behoben
+- Maschine koppeln scheiterte beim Übergeben der Zugangsdaten, und die Waage verband sich nach dem ersten Mal
+  nicht mehr (Zertifikat ging nach der ersten Verbindung verloren, F28).
+
 ## 0.5.1 – 22.11.2026
 
 ### Behoben

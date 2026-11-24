@@ -19,31 +19,27 @@ if RL_STORAGE_USE_SD
 
 config RL_SD_PIN_MISO
     int "SD: MISO (Karte DAT0)"
-    default 18 if IDF_TARGET_ESP32C6
-    default 13
+    default 18
     help
-        ESP32-S3-DevKitC-1: GPIO13. Ruehrlink-Platine (ESP32-C6): IO18.
+        Ruehrlink-Platine: IO18.
 
 config RL_SD_PIN_MOSI
     int "SD: MOSI (Karte CMD)"
-    default 20 if IDF_TARGET_ESP32C6
-    default 11
+    default 20
     help
-        ESP32-S3-DevKitC-1: GPIO11. Ruehrlink-Platine (ESP32-C6): IO20.
+        Ruehrlink-Platine: IO20.
 
 config RL_SD_PIN_SCK
     int "SD: SCK (Karte CLK)"
-    default 19 if IDF_TARGET_ESP32C6
-    default 12
+    default 19
     help
-        ESP32-S3-DevKitC-1: GPIO12. Ruehrlink-Platine (ESP32-C6): IO19.
+        Ruehrlink-Platine: IO19.
 
 config RL_SD_PIN_CS
     int "SD: CS (Karte DAT3)"
-    default 21 if IDF_TARGET_ESP32C6
-    default 10
+    default 21
     help
-        ESP32-S3-DevKitC-1: GPIO10. Ruehrlink-Platine (ESP32-C6): IO21.
+        Ruehrlink-Platine: IO21.
 
 config RL_SD_FREQ_KHZ
     int "SD: SPI-Takt in kHz"

@@ -344,9 +344,7 @@ char *storage_read(const char *path, size_t max_len, size_t *out_len)
     struct stat st;
     if (stat(path, &st) != 0 || st.st_size < 0 || (size_t)st.st_size > max_len) return NULL;
 
-    // in den PSRAM, damit der interne RAM für WLAN/TLS frei bleibt
-    char *buf = heap_caps_malloc(st.st_size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!buf) buf = malloc(st.st_size + 1);
+    char *buf = malloc(st.st_size + 1);
     if (!buf) return NULL;
 
     FILE *f = fopen(path, "rb");

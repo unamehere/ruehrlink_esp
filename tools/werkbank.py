@@ -40,7 +40,7 @@ import serial.tools.list_ports
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parent.parent
-BUILD = REPO / "firmware" / ".pio" / "build" / "ruehrlink-c6"
+BUILD = REPO / "firmware" / ".pio" / "build" / "ruehrlink"
 HOME = Path.home() / ".ruehrlink"
 KEY_FILE = HOME / "werkstatt-schluessel.bin"
 LABEL_DIR = HOME / "etiketten"
@@ -277,7 +277,7 @@ def flash_firmware(port: str, log=print):
     for off, name in FLASH_FILES:
         p = BUILD / name
         if not p.exists():
-            raise RuntimeError(f"{p} fehlt – zuerst 'pio run -e ruehrlink-c6' im firmware-Ordner")
+            raise RuntimeError(f"{p} fehlt – zuerst 'pio run' im firmware-Ordner")
         files += [hex(off), str(p)]
     log(f"Flashe Firmware {firmware_version()} …")
     esptool(port, "--after", "no_reset", "write_flash", *files, log=log)

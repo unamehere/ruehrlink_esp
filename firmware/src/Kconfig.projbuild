@@ -11,10 +11,9 @@ config RL_DEVELOPER_MODE
 
 config RL_BOOT_GPIO
     int "GPIO der BOOT-Taste"
-    default 9 if IDF_TARGET_ESP32C6
-    default 0
+    default 9
     help
-        ESP32-S3-DevKitC-1: GPIO0. Ruehrlink-Platine (ESP32-C6): IO9 (SW1, Pull-up R4).
+        Ruehrlink-Platine: IO9 (SW1, Pull-up R4).
 
 config RL_RAM_LOG
     bool "RAM-Verbrauch alle 10 s ausgeben"
@@ -22,9 +21,8 @@ config RL_RAM_LOG
     default n
     help
         Gibt freien internen RAM, den Tiefststand seit dem Start und den groessten
-        freien Block aus (bei PSRAM auch dessen Belegung) und meldet jede
-        fehlgeschlagene Speicheranforderung. Fuer die Abschaetzung, ob ein Chip
-        ohne PSRAM (z. B. ESP32-C6) reicht.
+        freien Block aus und meldet jede fehlgeschlagene Speicheranforderung
+        (ESP32-C6 ohne PSRAM: RAM ist knapp).
 
 config RL_SPEED_TEST
     bool "Testmodus Stufen (rohe Werte 0-15 statt benannter Stufen)"

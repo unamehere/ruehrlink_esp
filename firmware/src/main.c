@@ -52,14 +52,6 @@ static void log_ram(const char *wann)
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
-#if CONFIG_SPIRAM
-    size_t ps_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-    size_t ps_min = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
-    ESP_LOGI("ram", "[%s] PSRAM belegt %u KB, Spitze %u KB",
-             wann,
-             (unsigned)((ps_total - heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) / 1024),
-             (unsigned)((ps_total - ps_min) / 1024));
-#endif
 }
 #endif
 
