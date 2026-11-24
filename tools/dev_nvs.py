@@ -68,7 +68,7 @@ def main() -> int:
             csv.writer(f).writerows(rows)
         subprocess.run([idf_python(), "-m", "esp_idf_nvs_partition_gen", "generate", csv_path, bin_path, NVS_SIZE],
                        check=True, stdout=subprocess.DEVNULL)
-        subprocess.run([sys.executable, str(ESPTOOL), "--chip", "esp32s3", "--port", args.port,
+        subprocess.run([sys.executable, str(ESPTOOL), "--chip", "auto", "--port", args.port,
                         "write_flash", NVS_OFFSET, bin_path], check=True)
     print("NVS geschrieben (%d Eintraege). Temporaere Dateien geloescht." % (len(rows) - 2))
     return 0

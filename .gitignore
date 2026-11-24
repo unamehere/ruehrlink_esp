@@ -3,6 +3,7 @@ firmware/.pio/
 firmware/.vscode/
 firmware/sdkconfig.*
 !firmware/sdkconfig.defaults
+!firmware/sdkconfig.defaults.*
 firmware/managed_components/
 build/
 
@@ -22,3 +23,6 @@ Thumbs.db
 docs/architektur.md
 docs/testplan.md
 docs/updates.md
+
+# Python
+__pycache__/

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_app_desc.h"
+#include "esp_app_format.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
@@ -82,6 +83,15 @@ esp_err_t update_write(const void *data, size_t len)
 {
     if (!s_part) return ESP_ERR_INVALID_STATE;
     if (s_written + len > s_size) return ESP_ERR_INVALID_SIZE;
+    // Image für einen anderen Chip (z. B. S3-Firmware auf der C6-Platine) gleich am Anfang ablehnen;
+    // esp_ota_end würde es auch ablehnen, aber erst nach dem ganzen Upload.
+    if (s_written == 0 && len >= sizeof(esp_image_header_t)) {
+        const esp_image_header_t *h = data;
+        if (h->chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID) {
+            ESP_LOGE(TAG, "Image fuer Chip-ID %d, dieser Chip hat %d", h->chip_id, CONFIG_IDF_FIRMWARE_CHIP_ID);
+            return ESP_ERR_INVALID_VERSION;
+        }
+    }
     esp_err_t err = esp_ota_write(s_ota, data, len);
     if (err != ESP_OK) return err;
     if (psa_hash_update(&s_hash, data, len) != PSA_SUCCESS) return ESP_FAIL;

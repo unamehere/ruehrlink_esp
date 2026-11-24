@@ -80,14 +80,14 @@ void auth_new_token(char *token_out, size_t len)
 }
 
 #if CONFIG_RL_DEVELOPER_MODE
-// Entwicklermodus: BOOT-Taste des DevKits bestätigt eine offene Anfrage.
+// Entwicklermodus: BOOT-Taste (DevKit IO0, Platine IO9) bestätigt eine offene Anfrage.
 static void button_task(void *arg)
 {
-    gpio_config_t io = {.pin_bit_mask = 1ULL << GPIO_NUM_0, .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
+    gpio_config_t io = {.pin_bit_mask = 1ULL << CONFIG_RL_BOOT_GPIO, .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     gpio_config(&io);
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(50));
-        if (gpio_get_level(GPIO_NUM_0) != 0) continue;
+        if (gpio_get_level(CONFIG_RL_BOOT_GPIO) != 0) continue;
         xSemaphoreTake(s_lock, portMAX_DELAY);
         if (request_open() && !s_req.token[0]) approve_locked();
         xSemaphoreGive(s_lock);

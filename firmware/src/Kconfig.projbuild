@@ -9,6 +9,13 @@ config RL_DEVELOPER_MODE
         - Diagnose-Ausgaben auf der seriellen Konsole (z. B. fremdes Zertifikat
           des Einrichtungs-Servers der Maschine)
 
+config RL_BOOT_GPIO
+    int "GPIO der BOOT-Taste"
+    default 9 if IDF_TARGET_ESP32C6
+    default 0
+    help
+        ESP32-S3-DevKitC-1: GPIO0. Ruehrlink-Platine (ESP32-C6): IO9 (SW1, Pull-up R4).
+
 config RL_RAM_LOG
     bool "RAM-Verbrauch alle 10 s ausgeben"
     depends on RL_DEVELOPER_MODE

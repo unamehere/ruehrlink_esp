@@ -17,6 +17,7 @@
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 #include "nvs.h"
+#include "nvs_flash.h"
 
 #include "api.h"
 #include "diag.h"
@@ -32,6 +33,7 @@ static const char *TAG = "provision";
 #define SCAN_PAGE     5     // Netze pro rl-scan-Antwort (BLE-Grenze 512 Byte)
 #define SRP_USER      "ruehrlink"
 #define SALT_LEN      16
+#define FACTORY_PART  "fctry"   // Werksdaten-Partition (nur Rührlink-Platine, siehe partitions_8mb.csv)
 
 // Nur die verschlüsselte Sitzung (Security 2, SRP6a) kommt vom ESP-IDF-Paket (SESSION_ONLY-Modus):
 // Es fasst das WLAN nicht an – das Maschinen-WLAN muss weiterlaufen. WLAN-Suche, Zugangsdaten
@@ -46,6 +48,25 @@ static esp_timer_handle_t s_stop_timer;
 static bool s_running;
 
 // ---------------------------------------------------------------------------
+// Einrichtungs-Code aus den Werksdaten: von tools/werkbank am PC aus der MAC und einem geheimen
+// Werkstattschlüssel berechnet und in die Partition "fctry" geschrieben. Fehlt sie (S3-DevKit) oder
+// ist sie leer, erzeugt die Box den Code wie bisher selbst.
+
+static bool factory_pop(char *out, size_t n)
+{
+    if (nvs_flash_init_partition(FACTORY_PART) != ESP_OK) return false;
+    nvs_handle_t h;
+    if (nvs_open_from_partition(FACTORY_PART, "fctry", NVS_READONLY, &h) != ESP_OK) return false;
+    size_t len = n;
+    bool ok = nvs_get_str(h, "pop", out, &len) == ESP_OK && strlen(out) == POP_LEN;
+    char serial[24] = "";
+    len = sizeof(serial);
+    if (ok && nvs_get_str(h, "serial", serial, &len) == ESP_OK) ESP_LOGI(TAG, "Werksdaten: Seriennummer %s", serial);
+    nvs_close(h);
+    return ok;
+}
+
+// ---------------------------------------------------------------------------
 // Einrichtungs-Code (Proof of Possession), pro Gerät einmal erzeugt. Für Security 2 speichern wir
 // zusätzlich Salt und Verifier (SRP6a, Benutzer "ruehrlink") – die Berechnung dauert einige Sekunden.
 
@@ -56,11 +77,22 @@ static esp_err_t load_credentials(void)
     if (err != ESP_OK) return err;
     size_t len = sizeof(s_pop), slen = SALT_LEN, vlen = 0, ulen = 0;
     bool have_pop = nvs_get_str(h, "pop", s_pop, &len) == ESP_OK;
+    // Werksdaten haben Vorrang; weicht der gespeicherte Code ab, Verifier neu berechnen
+    char fpop[POP_LEN + 1] = "";
+    bool stale = false;
+    if (factory_pop(fpop, sizeof(fpop))) {
+        ESP_LOGI(TAG, "Einrichtungs-Code aus den Werksdaten");
+        if (!have_pop || strcmp(s_pop, fpop) != 0) {
+            memcpy(s_pop, fpop, sizeof(fpop));
+            have_pop = true;
+            stale = true;
+        }
+    }
     // Verifier gilt nur für den Benutzernamen, mit dem er berechnet wurde. Bis 0.2 hieß er "freikoch"
     // (ohne Eintrag "user") – dann mit demselben Einrichtungs-Code neu berechnen, das Etikett bleibt gültig.
     char user[16] = "";
     if (nvs_get_str(h, "user", NULL, &ulen) == ESP_OK && ulen <= sizeof(user)) nvs_get_str(h, "user", user, &ulen);
-    bool have = have_pop && strcmp(user, SRP_USER) == 0 &&
+    bool have = !stale && have_pop && strcmp(user, SRP_USER) == 0 &&
                 nvs_get_blob(h, "salt", s_salt, &slen) == ESP_OK &&
                 nvs_get_blob(h, "verifier", NULL, &vlen) == ESP_OK && vlen > 0;
     if (have) {

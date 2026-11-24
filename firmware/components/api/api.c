@@ -288,6 +288,7 @@ static esp_err_t h_info(httpd_req_t *req)
     cJSON_AddStringToObject(o, "id", net_device_id());
     cJSON_AddStringToObject(o, "name", "Rührlink");
     cJSON_AddStringToObject(o, "fw", esp_app_get_description()->version);
+    cJSON_AddStringToObject(o, "chip", CONFIG_IDF_TARGET);
     cJSON_AddNumberToObject(o, "api", API_VERSION);
     cJSON *sup = cJSON_AddArrayToObject(o, "apiSupported");
     for (size_t i = 0; i < sizeof(API_SUPPORTED) / sizeof(API_SUPPORTED[0]); i++) {
