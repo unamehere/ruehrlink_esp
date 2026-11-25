@@ -1,0 +1,40 @@
+# Release-Pipeline Firmware: Tag fw-v<version> pushen → Firmware bauen → Release-Entwurf mit dem
+# UNSIGNIERTEN Image. Signiert wird nur lokal (tools/release.py), der Firmware-Schlüssel kommt nie zu GitHub.
+name: Release
+
+on:
+  push:
+    tags: ["fw-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag passt zu VERSION?
+        run: |
+          V="${GITHUB_REF_NAME#fw-v}"
+          test "$(tr -d '[:space:]' < VERSION)" = "$V" || { echo "VERSION ist $(cat VERSION), Tag ist $V"; exit 1; }
+          echo "V=$V" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('firmware/platformio.ini', 'firmware/dependencies.lock') }}
+      - run: pip install platformio
+      - name: Firmware bauen
+        run: pio run -d firmware
+      - name: Release-Entwurf anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk -v v="$V" '$0 ~ "^## " v " " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          printf '\n---\n**Installieren:** `ruehrlink-%s.rlfw` in der App unter Mehr → Rührlink-Firmware auswählen. Signiert, nur für die Rührlink-Platine.\n' "$V" >> notes.md
+          cp firmware/.pio/build/ruehrlink/firmware.bin "firmware-$V-unsigniert.bin"
+          gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
+            --title "Firmware $V" --notes-file notes.md "firmware-$V-unsigniert.bin"
