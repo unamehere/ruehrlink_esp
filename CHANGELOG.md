@@ -8,10 +8,9 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
-- Releases enthalten zusätzlich `werkbank-basis-<v>.zip` (Bootloader, Partitionstabelle, OTA-Daten) für die
-  Werkbank. Die Werkbank selbst liegt jetzt im Hardware-Repo und holt die Firmware von hier.
+## 0.6.1 – 27.11.2026
 
-## 0.6.1-rc.1 – 27.11.2026 (Testversion)
+Gleicher Stand wie die Testversion 0.6.1-rc.1.
 
 ### Sicherheit
 - **Alles löschen:** Zurücksetzen aus der App kann jetzt auch alle Rezepte, Fotos, Programme und Protokolle
@@ -22,6 +21,10 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 - Die App-Schnittstelle ist nur noch im Heim-WLAN erreichbar, nicht über das WLAN der Maschine.
 - Zugangs-Token werden mit fester Laufzeit verglichen.
 - Meldeweg für Sicherheitslücken: `SECURITY.md`.
+
+### Sonstiges
+- Releases enthalten zusätzlich `werkbank-basis-<v>.zip` (Bootloader, Partitionstabelle, OTA-Daten) zum
+  Einrichten neuer Boxen per USB.
 
 ## 0.6.0 – 24.11.2026
 
