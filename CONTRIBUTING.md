@@ -40,6 +40,15 @@ unter **Unveröffentlicht** (Neu / Geändert / Behoben, in Nutzersprache). Reine
 3. Im `CHANGELOG.md` die Einträge unter „Unveröffentlicht“ in die neue Version verschieben (Datum dazu).
 4. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
+### Testversionen (Release Candidates)
+
+Bevor eine Version fertig ist, gibt es Testversionen mit Zusatz: `0.6.1-rc.1`, `0.6.1-rc.2` … Gebaut und
+veröffentlicht werden sie wie jede Version über die Pipeline (Tag `v0.6.1-rc.1` bzw. `fw-v0.6.1-rc.1`), aber immer
+als Pre-Release mit „Testversion“ im Titel. Gefundene Fehler kommen in die nächste `-rc`. Ist eine Testversion an
+der Maschine bestanden, wird **derselbe Stand** ohne Zusatz als `0.6.1` getaggt (Changelog: die `-rc`-Abschnitte zu
+`## 0.6.1 – Datum` zusammenfassen). Die App hält `0.6.1-rc.2` für älter als `0.6.1`; Android-Build-Nummer
+(`+33`) zählt immer weiter.
+
 Keine Zugangsdaten (WLAN, Tokens, Passwörter) in Dateien im Repo – auch nicht in ignorierten.
 
 ## Beiträge und Lizenz

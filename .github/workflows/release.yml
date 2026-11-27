@@ -36,5 +36,6 @@ jobs:
           awk -v v="$V" '$0 ~ "^## " v " " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           printf '\n---\n**Installieren:** `ruehrlink-%s.rlfw` in der App unter Mehr → Rührlink-Firmware auswählen. Signiert, nur für die Rührlink-Platine.\n' "$V" >> notes.md
           cp firmware/.pio/build/ruehrlink/firmware.bin "firmware-$V-unsigniert.bin"
+          case "$V" in *-*) TITLE="Firmware $V (Testversion)" ;; *) TITLE="Firmware $V" ;; esac
           gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
-            --title "Firmware $V" --notes-file notes.md "firmware-$V-unsigniert.bin"
+            --title "$TITLE" --notes-file notes.md "firmware-$V-unsigniert.bin"

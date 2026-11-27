@@ -68,6 +68,8 @@ def main():
     a = ap.parse_args()
 
     v, tag = a.version, f"fw-v{a.version}"
+    if a.stable and "-" in v:
+        sys.exit(f"{v} ist eine Testversion (Release Candidate) – die wird nie als stabil veröffentlicht.")
     info = gh("release", "view", tag, "--json", "assets", "--jq", ".assets[].name", capture=True).split()
     unsigned = f"firmware-{v}-unsigniert.bin"
     if unsigned not in info:
