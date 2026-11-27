@@ -1,6 +1,7 @@
 # Lokale App-API des Rührlink (v1, Entwurf)
 
-Die API ist nur im Heim-WLAN erreichbar. Sie ist die einzige Schnittstelle zwischen
+Die API ist nur im Heim-WLAN erreichbar (seit 0.6.1 auch technisch: Verbindungen über das WLAN der Maschine
+schließt die Brücke sofort). Sie ist die einzige Schnittstelle zwischen
 Brücke und App und wird in beiden Repos (`ruehrlink_esp`, `ruehrlink_app`) gegen diese Datei
 entwickelt. Änderungen hier zuerst, dann im Code.
 
@@ -24,7 +25,9 @@ Die Brücke hat **keine Taste für Kunden** (Entscheidung 12.11.). Gekoppelt wir
         „Neues Gerät möchte sich verbinden – erlauben?“.
      3. Eine App bestätigt: `POST /api/v1/pair/approve` mit `{"id":"…"}` (mit Token) → `204`.
      4. Die neue App ruft `POST /api/v1/pair` erneut auf → `200 {"token":"…"}` (einmalig).
-     Ohne Bestätigung verfällt die Anfrage nach 60 s.
+     Ohne Bestätigung verfällt die Anfrage nach 60 s. Solange eine Anfrage offen ist, beantwortet die Brücke
+     weitere neue Anfragen mit `429 {"error":"busy"}` (`Retry-After: 60`, seit 0.6.1) – eine laufende Anfrage
+     wird nie ersetzt, damit sie niemand im WLAN übernehmen kann.
 3. Alle weiteren Aufrufe mit Header `Authorization: Bearer <token>` (WebSocket: `?token=`).
 4. Nur im **Entwicklermodus** der Firmware bestätigt zusätzlich die BOOT-Taste des DevKits.
 
@@ -119,12 +122,15 @@ zum Chip passen, sonst lehnt die Box sie gleich zu Beginn des Uploads ab.
 | `time` | 0.3 | `POST /time` |
 | `pair` | 0.3 | `POST /pair`, `/pair/approve`, WS `pairRequest` |
 | `reset` | 0.3 | `POST /reset` |
+| `reset.wipe` | 0.6.1 | `POST /reset` mit `{"wipe":true}` – zusätzlich alle Nutzerdaten löschen |
 | `ota` | 0.3 | `POST /ota` |
 | `diag` | 0.5.0 | `GET /diag` |
 
 ### Einzelheiten
 
-- `POST /api/v1/reset` – Antwort `202`, nach 0,5 s Werksreset und Neustart. Gelöscht: Heim-WLAN, alle
+- `POST /api/v1/reset` – optional Body `{"wipe": true}` (Fähigkeit `reset.wipe`): zusätzlich microSD
+  formatieren und Flash-Speicher löschen (Rezepte, Fotos, Programme, Protokolle) – „alles löschen“ vor
+  Weitergabe/Verkauf. Ohne `wipe` wie bisher: Antwort `202`, nach 0,5 s Werksreset und Neustart. Gelöscht: Heim-WLAN, alle
   App-Tokens, Passwort des Maschinen-WLANs (Maschine muss neu gekoppelt werden). Bleibt: Einrichtungs-Code
   (QR auf dem Etikett) und Rezepte. Ohne App: Netzteil 5× kurz hintereinander aus/ein (< 10 s an).
 

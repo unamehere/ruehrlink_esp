@@ -125,15 +125,24 @@ void auth_init(auth_request_cb_t on_request)
 #endif
 }
 
+// Vergleich mit fester Laufzeit (kein Rückschluss über die Antwortzeit, EN 18031).
+static bool same(const char *a, const char *b, size_t n)
+{
+    unsigned char d = 0;
+    for (size_t i = 0; i < n; i++) d |= (unsigned char)(a[i] ^ b[i]);
+    return d == 0;
+}
+
 bool auth_check(const char *token)
 {
     if (!token) return false;
     if (strncmp(token, "Bearer ", 7) == 0) token += 7;
     if (strlen(token) != TOKEN_LEN) return false;
+    bool ok = false;
     for (int i = 0; i < MAX_TOKENS; i++) {
-        if (s_tok.t[i][0] && strcmp(s_tok.t[i], token) == 0) return true;
+        if (s_tok.t[i][0] && same(s_tok.t[i], token, TOKEN_LEN)) ok = true;
     }
-    return false;
+    return ok;
 }
 
 auth_pair_result_t auth_pair(const char *id, const char *name, char *id_out, size_t id_len,
@@ -148,7 +157,9 @@ auth_pair_result_t auth_pair(const char *id, const char *name, char *id_out, siz
             memset(&s_req, 0, sizeof(s_req));
             res = AUTH_PAIR_TOKEN;
         }
-    } else {                   // neue Anfrage ersetzt eine alte
+    } else if (request_open() && !s_req.token[0]) {
+        res = AUTH_PAIR_BUSY;  // laufende Anfrage nicht ersetzen (sonst übernehmbar)
+    } else {                   // neue Anfrage (alte abgelaufen oder schon abgeholt)
         memset(&s_req, 0, sizeof(s_req));
         random_hex(s_req.id, ID_LEN);
         snprintf(s_req.name, sizeof(s_req.name), "%s", name && name[0] ? name : "Neues Geraet");

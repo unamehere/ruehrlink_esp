@@ -35,3 +35,8 @@ esp_err_t storage_remove(const char *path);
 
 // Verzeichnis (auch verschachtelt) anlegen, falls es fehlt.
 esp_err_t storage_mkdirs(const char *path);
+
+// Alle Nutzerdaten löschen (Rezepte, Fotos, Programme, Protokolle) – vor Weitergabe/Verkauf.
+// microSD wird neu formatiert, der Flash-Speicher (Rückfall bzw. alte Kopie) komplett gelöscht.
+// Danach ist kein Speicher mehr eingehängt; nur noch neu starten.
+esp_err_t storage_wipe(void);

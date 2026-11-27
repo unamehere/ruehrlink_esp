@@ -8,6 +8,16 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+### Sicherheit
+- **Alles löschen:** Zurücksetzen aus der App kann jetzt auch alle Rezepte, Fotos, Programme und Protokolle
+  löschen (microSD wird formatiert, interner Speicher gelöscht) – vor Weitergabe oder Verkauf. Das 5×-Aus/Ein
+  lässt die Daten wie bisher stehen.
+- Kopplung: Eine laufende Kopplungsanfrage kann nicht mehr von einem anderen Gerät im WLAN ersetzt und damit
+  übernommen werden. Weitere Anfragen bekommen bis zu 60 s „bitte später“.
+- Die App-Schnittstelle ist nur noch im Heim-WLAN erreichbar, nicht über das WLAN der Maschine.
+- Zugangs-Token werden mit fester Laufzeit verglichen.
+- Meldeweg für Sicherheitslücken: `SECURITY.md`.
+
 ## 0.6.0 – 24.11.2026
 
 **Nur noch für die Rührlink-Platine (ESP32-C6).** Frühe Entwicklungsboxen mit ESP32-S3 werden nicht mehr

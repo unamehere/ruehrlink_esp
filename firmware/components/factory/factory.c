@@ -4,7 +4,10 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "nvs.h"
+#include "storage.h"
 
 static const char *TAG = "factory";
 
@@ -53,6 +56,21 @@ void factory_reset_later(int ms)
         esp_timer_create(&a, &t);
     }
     esp_timer_start_once(t, (uint64_t)ms * 1000);
+}
+
+// Eigener Task statt Timer-Callback: Formatieren/Löschen dauert einige Sekunden.
+static void wipe_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS((int)(intptr_t)arg));
+    ESP_LOGW(TAG, "Alles loeschen: Nutzerdaten, dann Werksreset");
+    esp_err_t err = storage_wipe();
+    if (err != ESP_OK) ESP_LOGE(TAG, "Speicher loeschen: %s", esp_err_to_name(err));
+    factory_reset();
+}
+
+void factory_wipe_later(int ms)
+{
+    if (xTaskCreate(wipe_task, "wipe", 6144, (void *)(intptr_t)ms, 5, NULL) != pdPASS) factory_reset_later(ms);
 }
 
 void factory_check_power_cycles(void)

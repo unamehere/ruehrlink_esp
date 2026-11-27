@@ -283,6 +283,37 @@ esp_err_t storage_init(void)
     return ESP_OK;
 }
 
+esp_err_t storage_wipe(void)
+{
+    esp_err_t err = ESP_OK;
+#if CONFIG_RL_STORAGE_USE_SD
+    if (s_card && strcmp(s_backend, "sd") == 0) {
+        ESP_LOGW(TAG, "microSD wird formatiert (alles loeschen)");
+        err = esp_vfs_fat_sdcard_format(STORAGE_ROOT, s_card);
+        esp_vfs_fat_sdcard_unmount(STORAGE_ROOT, s_card);
+        s_card = NULL;
+        s_backend = "none";
+    }
+#endif
+#if CONFIG_RL_STORAGE_FLASH_FALLBACK
+    if (strcmp(s_backend, "flash") == 0) {
+        esp_vfs_fat_spiflash_unmount_rw_wl(STORAGE_ROOT, s_wl);
+        s_wl = WL_INVALID_HANDLE;
+        s_backend = "none";
+    }
+    // Ganze Partition löschen (auch eine alte, schon auf die Karte kopierte Fassung). Beim nächsten
+    // Start formatiert der Rückfall sie neu bzw. die Kopie auf die Karte findet nichts mehr.
+    const esp_partition_t *p =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, FLASH_PARTITION);
+    if (p) {
+        ESP_LOGW(TAG, "Flash-Speicher wird geloescht (alles loeschen)");
+        esp_err_t e = esp_partition_erase_range(p, 0, p->size);
+        if (err == ESP_OK) err = e;
+    }
+#endif
+    return err;
+}
+
 esp_err_t storage_usage(uint64_t *total_bytes, uint64_t *free_bytes)
 {
     return esp_vfs_fat_info(STORAGE_ROOT, total_bytes, free_bytes);

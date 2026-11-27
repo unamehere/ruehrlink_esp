@@ -22,6 +22,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/inet.h"
+#include "lwip/sockets.h"
 
 #include "appliance.h"
 #include "auth.h"
@@ -58,6 +60,7 @@ static const char *const FEATURES[] = {
     "time",             // POST /time
     "pair",             // POST /pair, /pair/approve, WS pairRequest
     "reset",            // POST /reset
+    "reset.wipe",       // POST /reset {"wipe":true}: zusätzlich Rezepte, Fotos, Protokolle löschen
     "ota",              // POST /ota
     "diag",             // GET /diag
 };
@@ -904,8 +907,16 @@ static esp_err_t h_ota(httpd_req_t *req)
 static esp_err_t h_reset(httpd_req_t *req)
 {
     if (!authorized(req)) return ESP_OK;
-    ESP_LOGW(TAG, "Werksreset aus der App");
-    factory_reset_later(500);
+    bool wipe = false;
+    if (req->content_len) {
+        cJSON *b = read_body(req);
+        if (!b) return ESP_OK;
+        wipe = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(b, "wipe"));
+        cJSON_Delete(b);
+    }
+    ESP_LOGW(TAG, "Werksreset aus der App%s", wipe ? " - alles loeschen" : "");
+    if (wipe) factory_wipe_later(500);
+    else factory_reset_later(500);
     return send_json(req, "202 Accepted", cJSON_CreateObject());
 }
 
@@ -1069,6 +1080,11 @@ static esp_err_t h_pair(httpd_req_t *req)
         cJSON_AddStringToObject(o, "token", token);
         return send_json(req, "200 OK", o);
     }
+    if (r == AUTH_PAIR_BUSY) {
+        cJSON_AddStringToObject(o, "error", "busy");
+        httpd_resp_set_hdr(req, "Retry-After", "60");
+        return send_json(req, "429 Too Many Requests", o);
+    }
     cJSON_AddStringToObject(o, "pairing", "waiting");
     cJSON_AddStringToObject(o, "id", id);
     return send_json(req, "202 Accepted", o);
@@ -1096,6 +1112,35 @@ static void on_pair_request(const char *id, const char *name)
 
 void api_issue_token(char *out, size_t len) { auth_new_token(out, len); }
 
+// Die App-API gibt es nur im Heim-WLAN. Verbindungen über das WLAN der Maschine (AP, NET_AP_IP)
+// werden gleich beim Öffnen geschlossen – dort hat nur die Maschine etwas zu suchen (EN 18031 GEC).
+static bool local_is_ap(int sockfd)
+{
+    struct sockaddr_storage local;
+    socklen_t len = sizeof(local);
+    if (getsockname(sockfd, (struct sockaddr *)&local, &len) != 0) return false;
+    uint32_t ap = ipaddr_addr(NET_AP_IP);
+    if (local.ss_family == AF_INET) return ((struct sockaddr_in *)&local)->sin_addr.s_addr == ap;
+#if CONFIG_LWIP_IPV6
+    // httpd lauscht mit IPv6 auf beiden Protokollen: IPv4 kommt dann als ::ffff:a.b.c.d
+    if (local.ss_family == AF_INET6) {
+        const uint8_t *b = ((struct sockaddr_in6 *)&local)->sin6_addr.s6_addr;
+        static const uint8_t mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+        return memcmp(b, mapped, sizeof(mapped)) == 0 && memcmp(b + 12, &ap, 4) == 0;
+    }
+#endif
+    return false;
+}
+
+static esp_err_t on_open(httpd_handle_t hd, int sockfd)
+{
+    if (local_is_ap(sockfd)) {
+        ESP_LOGW(TAG, "Verbindung ueber das Maschinen-WLAN abgelehnt");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 esp_err_t api_start(void)
 {
     auth_init(on_pair_request);
@@ -1106,6 +1151,7 @@ esp_err_t api_start(void)
     cfg.max_uri_handlers = 32;  // Waage, Rezepte, Fotos
     cfg.uri_match_fn = httpd_uri_match_wildcard;  // /recipes/{id}, /media/{sha256}
     cfg.stack_size = 8192;  // Signaturprüfung beim Update
+    cfg.open_fn = on_open;  // nur Heim-WLAN
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP-Server: %s", esp_err_to_name(err));
