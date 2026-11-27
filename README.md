@@ -46,8 +46,9 @@ Zielhardware: die **Rührlink-Platine** mit ESP32-C6-WROOM-1-N8 (8 MB Flash, kei
 Status-LED rot/grün, Buchse für eine WS2812-Schüsselbeleuchtung. Flashen und Logs über die USB-C-Buchse
 (USB-Serial/JTAG, ohne BOOT-Taste). Pins stehen in den `Kconfig.projbuild` der Komponenten.
 
-Neue Boxen einrichten (Firmware, Einrichtungs-Code, Etikett mit QR-Code): `tools/werkbank.py`
-(Pakete: `tools/werkbank-requirements.txt`).
+Neue Boxen einrichten (Firmware, Einrichtungs-Code, Etikett mit QR-Code) macht die Werkbank im Hardware-Repo.
+Sie holt die Firmware aus den Releases hier: signierte `ruehrlink-<v>.rlfw` plus `werkbank-basis-<v>.zip`
+(Bootloader, Partitionstabelle, OTA-Daten – baut die Release-Pipeline mit).
 
 ## Status
 

@@ -8,6 +8,9 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+- Releases enthalten zusätzlich `werkbank-basis-<v>.zip` (Bootloader, Partitionstabelle, OTA-Daten) für die
+  Werkbank. Die Werkbank selbst liegt jetzt im Hardware-Repo und holt die Firmware von hier.
+
 ## 0.6.1-rc.1 – 27.11.2026 (Testversion)
 
 ### Sicherheit

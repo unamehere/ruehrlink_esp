@@ -36,6 +36,8 @@ jobs:
           awk -v v="$V" '$0 ~ "^## " v " " {f=1; next} /^## /{f=0} f' CHANGELOG.md > notes.md
           printf '\n---\n**Installieren:** `ruehrlink-%s.rlfw` in der App unter Mehr → Rührlink-Firmware auswählen. Signiert, nur für die Rührlink-Platine.\n' "$V" >> notes.md
           cp firmware/.pio/build/ruehrlink/firmware.bin "firmware-$V-unsigniert.bin"
+          # Für die Werkbank (neue Boxen per USB): alles außer dem App-Image, das kommt signiert aus der .rlfw
+          (cd firmware/.pio/build/ruehrlink && zip -q "$GITHUB_WORKSPACE/werkbank-basis-$V.zip" bootloader.bin partitions.bin ota_data_initial.bin)
           case "$V" in *-*) TITLE="Firmware $V (Testversion)" ;; *) TITLE="Firmware $V" ;; esac
           gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
-            --title "$TITLE" --notes-file notes.md "firmware-$V-unsigniert.bin"
+            --title "$TITLE" --notes-file notes.md "firmware-$V-unsigniert.bin" "werkbank-basis-$V.zip"
