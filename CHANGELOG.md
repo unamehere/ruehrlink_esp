@@ -8,6 +8,8 @@ Sicherheitsrelevante Änderungen sind mit **Sicherheit** gekennzeichnet. Nummern
 
 ## Unveröffentlicht
 
+## 0.6.1-rc.1 – 27.11.2026 (Testversion)
+
 ### Sicherheit
 - **Alles löschen:** Zurücksetzen aus der App kann jetzt auch alle Rezepte, Fotos, Programme und Protokolle
   löschen (microSD wird formatiert, interner Speicher gelöscht) – vor Weitergabe oder Verkauf. Das 5×-Aus/Ein
