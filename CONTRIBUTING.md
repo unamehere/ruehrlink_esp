@@ -36,7 +36,7 @@ unter **Unveröffentlicht** (Neu / Geändert / Behoben, in Nutzersprache). Reine
 ## Release
 
 1. Testplan an der echten Maschine durchlaufen (`ruehrlink_esp/docs/testplan.md`), Ergebnis eintragen.
-2. `develop` → `main` mergen, Tag `vX.Y.Z` (App) bzw. `fw-vX.Y.Z` (Firmware) setzen. App und Firmware haben eigene Versionsnummern; was sie verbindet, sind `api` und `features` (siehe docs/updates.md).
+2. `develop` → `main` mergen, Tag `vX.Y.Z` (App) bzw. `fw-vX.Y.Z` (Firmware) setzen. App und Firmware haben **dieselbe Mittelzahl** (Firmware 0.6.y ↔ App 0.6.x): Der Patch zählt je Repo unabhängig, die Mittelzahl geht gemeinsam hoch, wenn beide betroffen sind (Funktion/API). Technisch abgesichert bleibt es über `api`, `features` und `minApp` (siehe docs/updates.md).
 3. Im `CHANGELOG.md` die Einträge unter „Unveröffentlicht“ in die neue Version verschieben (Datum dazu).
 4. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
