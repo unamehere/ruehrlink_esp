@@ -40,6 +40,15 @@ unter **Unveröffentlicht** (Neu / Geändert / Behoben, in Nutzersprache). Reine
 3. Im `CHANGELOG.md` die Einträge unter „Unveröffentlicht“ in die neue Version verschieben (Datum dazu).
 4. Fehler aus Tests kommen in die Fehlerliste (`Ruehrlink/user_feedback/fehlerliste.md`, lokal, nicht im Repo).
 
+### Entwicklungsbuilds
+
+Zwischenstände der Firmware werden nicht veröffentlicht und nie auf GitHub signiert (der Schlüssel liegt nur in
+`~/.ruehrlink/`). Entweder per USB flashen (`pio run -d firmware -t upload`) oder lokal zu einer Update-Datei
+packen: `pio run -d firmware`, dann
+`~/.platformio/penv/Scripts/python.exe tools/firmware_sign.py pack --min-app 0.4.0 --channel beta --out ~/Downloads`
+und in der App unter Mehr → Update auswählen. Die CI baut bei jedem Push nur zur Prüfung. RC oder Release gibt
+es erst, wenn Niklas es sagt.
+
 ### Testversionen (Release Candidates)
 
 Bevor eine Version fertig ist, gibt es Testversionen mit Zusatz: `0.6.1-rc.1`, `0.6.1-rc.2` … Gebaut und
